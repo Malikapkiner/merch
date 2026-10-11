@@ -6,10 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Liste sayfası yayındaki Ürünleri gösterir ve kategoriye göre süzülür
-- [ ] Detay sayfası açıklama, Varyant seçimi ve seçilen Varyantın fiyatını anında gösterir
-- [ ] Fiyatlar "KDV dahil" TRY olarak biçimlenir; veride kuruş integer ve KDV oranı ayrı alandır
-- [ ] Stoğu 0 olan Varyant "Tükendi" gösterilir ve seçilemez
-- [ ] Yayından kaldırılmış Ürün listede ve detayda görünmez
-- [ ] Sayfalar sunucuda render edilir; başlık, açıklama ve ürün yapılandırılmış verisi vardır
-- [ ] Katalog modülü public arayüzü üzerinden gerçek Postgres ile test edilmiştir
+- [x] Liste sayfası yayındaki Ürünleri gösterir ve kategoriye göre süzülür
+- [x] Detay sayfası açıklama, Varyant seçimi ve seçilen Varyantın fiyatını anında gösterir
+- [x] Fiyatlar "KDV dahil" TRY olarak biçimlenir; veride kuruş integer ve KDV oranı ayrı alandır
+- [x] Stoğu 0 olan Varyant "Tükendi" gösterilir ve seçilemez
+- [x] Yayından kaldırılmış Ürün listede ve detayda görünmez
+- [x] Sayfalar sunucuda render edilir; başlık, açıklama ve ürün yapılandırılmış verisi vardır
+- [x] Katalog modülü public arayüzü üzerinden gerçek Postgres ile test edilmiştir
