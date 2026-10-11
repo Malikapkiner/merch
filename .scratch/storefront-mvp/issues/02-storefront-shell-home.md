@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Header (logo, gezinme, sepet göstergesi yer tutucu) ve footer (hukuki sayfa bağlantı alanı dahil) tüm sayfalarda görünür
-- [ ] Ana sayfa mobil ve masaüstünde sorunsuz görünür
-- [ ] Tipografi, renk ve boşluk kuralları yeniden kullanılabilir tasarım öğeleri olarak tanımlanmıştır
-- [ ] Sayfalar sunucuda render edilir, başlık ve açıklama meta verileri vardır
-- [ ] Arayüz Türkçedir
+- [x] Header (logo, gezinme, sepet göstergesi yer tutucu) ve footer (hukuki sayfa bağlantı alanı dahil) tüm sayfalarda görünür
+- [x] Ana sayfa mobil ve masaüstünde sorunsuz görünür
+- [x] Tipografi, renk ve boşluk kuralları yeniden kullanılabilir tasarım öğeleri olarak tanımlanmıştır
+- [x] Sayfalar sunucuda render edilir, başlık ve açıklama meta verileri vardır
+- [x] Arayüz Türkçedir
