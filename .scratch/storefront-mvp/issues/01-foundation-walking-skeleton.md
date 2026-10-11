@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Uygulama yerelde ve Docker içinde çalışır; basit bir ana sayfa marka adını yapılandırmadan gösterir
-- [ ] Neon veritabanına bağlanılır ve şema migrasyonları çalıştırılabilir
-- [ ] Test komutu gerçek bir Postgres test veritabanı üzerinde en az bir örnek modül testini çalıştırır
-- [ ] Modül sınırlarını zorlayan yapı kurulmuştur (derin modüller, dar public arayüzler)
-- [ ] CI testleri ve tip kontrolünü çalıştırır
+- [x] Uygulama yerelde ve Docker içinde çalışır; basit bir ana sayfa marka adını yapılandırmadan gösterir
+- [x] Neon veritabanına bağlanılır ve şema migrasyonları çalıştırılabilir
+- [x] Test komutu gerçek bir Postgres test veritabanı üzerinde en az bir örnek modül testini çalıştırır
+- [x] Modül sınırlarını zorlayan yapı kurulmuştur (derin modüller, dar public arayüzler)
+- [x] CI testleri ve tip kontrolünü çalıştırır
 - [ ] Docker imajı VPS'e deploy edilir ve ana sayfa erişilebilir
