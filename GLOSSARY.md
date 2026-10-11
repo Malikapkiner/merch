@@ -30,6 +30,10 @@ _Avoid_: Yönetici, operatör
 Mağazada satılan bir doğal gıda kalemi (ör. erken hasat zeytinyağı).
 _Avoid_: Mal, item
 
+**Kategori** (`Category`):
+Ürünleri gruplayan ve listelemede süzme için kullanılan ad (ör. zeytinyağı, zeytin, salça).
+_Avoid_: Tür, koleksiyon
+
 **Varyant** (`Variant`):
 Bir Ürünün satın alınabilir tek biçimi (ör. 500 ml cam şişe, 5 L teneke). Fiyat ve stok Varyant'ta tutulur.
 _Avoid_: Seçenek, SKU, boyut

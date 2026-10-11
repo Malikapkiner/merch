@@ -15,7 +15,7 @@ export function testDatabaseUrl(): string {
 export function openTestDatabase() {
   const { db, close } = createDatabase(testDatabaseUrl());
   async function truncateAll() {
-    await db.execute(sql`TRUNCATE TABLE products RESTART IDENTITY CASCADE`);
+    await db.execute(sql`TRUNCATE TABLE products, categories RESTART IDENTITY CASCADE`);
   }
   return { db, close, truncateAll };
 }
