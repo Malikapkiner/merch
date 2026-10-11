@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] Her belge kendi sayfasında gösterilir ve footer'dan erişilir
-- [ ] Her belgenin sürüm numarası vardır; güncel sürüm modül arayüzünden sorgulanabilir
-- [ ] Belgeler admin panelinden değil, kod tabanında sürümlü dosyalar olarak tutulur
-- [ ] Sürüm sorgusu için modül testi vardır
+- [x] Her belge kendi sayfasında gösterilir ve footer'dan erişilir
+- [x] Her belgenin sürüm numarası vardır; güncel sürüm modül arayüzünden sorgulanabilir
+- [x] Belgeler admin panelinden değil, kod tabanında sürümlü dosyalar olarak tutulur
+- [x] Sürüm sorgusu için modül testi vardır

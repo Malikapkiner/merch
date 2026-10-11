@@ -6,7 +6,7 @@ export const siteConfig = {
 
 export const navLinks = [{ href: "/urunler", label: "Ürünler" }] as const;
 
-/** Legal pages (content arrives in a later ticket; footer links are ready). */
+/** Legal pages; slugs match the Legal module documents. */
 export const legalLinks = [
   { href: "/yasal/mesafeli-satis-sozlesmesi", label: "Mesafeli Satış Sözleşmesi" },
   { href: "/yasal/on-bilgilendirme-formu", label: "Ön Bilgilendirme Formu" },
