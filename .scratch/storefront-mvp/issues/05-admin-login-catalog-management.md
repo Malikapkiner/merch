@@ -6,10 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Admin e-posta ve şifreyle giriş yapar; giriş yapmamış biri panele erişemez
-- [ ] Parolalar modern bir algoritmayla saklanır; giriş denemelerine hız sınırı uygulanır
-- [ ] Admin Ürün oluşturur, düzenler, yayından kaldırır
-- [ ] Admin Ürüne Varyant ekler ve fiyat, KDV oranı, Stok düzenler
-- [ ] Admin Stoğu elle düzeltir
-- [ ] Yapılan değişiklikler mağaza sayfalarında yansır
-- [ ] Giriş ve yönetim kuralları modül arayüzü üzerinden test edilmiştir
+- [x] Admin e-posta ve şifreyle giriş yapar; giriş yapmamış biri panele erişemez
+- [x] Parolalar modern bir algoritmayla saklanır; giriş denemelerine hız sınırı uygulanır
+- [x] Admin Ürün oluşturur, düzenler, yayından kaldırır
+- [x] Admin Ürüne Varyant ekler ve fiyat, KDV oranı, Stok düzenler
+- [x] Admin Stoğu elle düzeltir
+- [x] Yapılan değişiklikler mağaza sayfalarında yansır
+- [x] Giriş ve yönetim kuralları modül arayüzü üzerinden test edilmiştir

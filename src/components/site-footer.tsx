@@ -32,7 +32,8 @@ export function SiteFooter() {
           </nav>
         </div>
         <p className="site-footer__copy">
-          © {new Date().getFullYear()} {siteConfig.brandName}. Tüm hakları saklıdır.
+          © {new Date().getFullYear()} {siteConfig.brandName}. Tüm hakları saklıdır.{" "}
+          <Link href="/admin">Yönetim</Link>
         </p>
       </div>
     </footer>

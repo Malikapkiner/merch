@@ -15,6 +15,13 @@
       "when": 1791712759629,
       "tag": "0001_melodic_loners",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792229138983,
+      "tag": "0002_cute_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

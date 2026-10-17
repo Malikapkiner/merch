@@ -98,4 +98,71 @@ describe("Catalog", () => {
 
     await expect(catalog.createProduct({ slug: "salca", name: "Başka" })).rejects.toThrow();
   });
+
+  it("shows the Admin every product, including unpublished ones", async () => {
+    await catalog.createProduct({ slug: "yayinda", name: "Yayında" });
+    await catalog.createProduct({ slug: "taslak", name: "Taslak", published: false });
+
+    const products = await catalog.listProductsForAdmin();
+
+    expect(products.map((p) => p.slug)).toEqual(["yayinda", "taslak"]);
+  });
+
+  it("hides a product from the storefront once the Admin unpublishes it", async () => {
+    const product = await catalog.createProduct({ slug: "salca", name: "Biber Salçası" });
+
+    await catalog.updateProduct(product.id, { published: false });
+
+    expect(await catalog.getProduct("salca")).toBeNull();
+    expect((await catalog.listProducts()).map((p) => p.slug)).toEqual([]);
+  });
+
+  it("reflects an edited product name on the storefront", async () => {
+    const product = await catalog.createProduct({ slug: "salca", name: "Biber Salçası" });
+
+    await catalog.updateProduct(product.id, { name: "Acı Biber Salçası" });
+
+    expect((await catalog.getProduct("salca"))?.name).toBe("Acı Biber Salçası");
+  });
+
+  it("reflects an edited variant price and KDV rate on the storefront", async () => {
+    const product = await catalog.createProduct({ slug: "salca", name: "Biber Salçası" });
+    await catalog.addVariant(product.id, { name: "700 g", priceKurus: 22900, vatRatePercent: 1, stock: 4 });
+    const [variant] = (await catalog.getProductForAdmin(product.id))!.variants;
+
+    await catalog.updateVariant(variant.id, { priceKurus: 24900, vatRatePercent: 10 });
+
+    const [storefrontVariant] = (await catalog.getProduct("salca"))!.variants;
+    expect(storefrontVariant).toMatchObject({ priceKurus: 24900, vatRatePercent: 10 });
+  });
+
+  it("marks a variant sold out on the storefront when the Admin sets Stok to zero", async () => {
+    const product = await catalog.createProduct({ slug: "salca", name: "Biber Salçası" });
+    await catalog.addVariant(product.id, { name: "700 g", priceKurus: 22900, vatRatePercent: 1, stock: 4 });
+    const [variant] = (await catalog.getProductForAdmin(product.id))!.variants;
+
+    await catalog.setStock(variant.id, 0);
+
+    expect((await catalog.getProduct("salca"))!.variants[0].soldOut).toBe(true);
+  });
+
+  it("restocks a sold-out variant", async () => {
+    const product = await catalog.createProduct({ slug: "salca", name: "Biber Salçası" });
+    await catalog.addVariant(product.id, { name: "700 g", priceKurus: 22900, vatRatePercent: 1, stock: 0 });
+    const [variant] = (await catalog.getProductForAdmin(product.id))!.variants;
+
+    await catalog.setStock(variant.id, 12);
+
+    expect((await catalog.getProduct("salca"))!.variants[0].soldOut).toBe(false);
+  });
+
+  it("rejects a negative Stok or price", async () => {
+    const product = await catalog.createProduct({ slug: "salca", name: "Biber Salçası" });
+    await catalog.addVariant(product.id, { name: "700 g", priceKurus: 22900, vatRatePercent: 1, stock: 1 });
+    const [variant] = (await catalog.getProductForAdmin(product.id))!.variants;
+
+    await expect(catalog.setStock(variant.id, -1)).rejects.toThrow();
+    await expect(catalog.updateVariant(variant.id, { stock: -1 })).rejects.toThrow();
+    await expect(catalog.updateVariant(variant.id, { priceKurus: -5 })).rejects.toThrow();
+  });
 });
