@@ -1,8 +1,17 @@
-import { and, asc, eq, min } from "drizzle-orm";
+import { and, asc, eq, inArray, min } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import type { Database } from "@/db/client";
-import { categories, products, variants } from "./schema";
+import type { MediaStorage } from "../media";
+import { categories, productImages, products, variants } from "./schema";
 
 export type Category = { id: number; slug: string; name: string };
+
+export type ProductImage = {
+  id: number;
+  /** Public URL of the image, built by the Media storage port. */
+  url: string;
+  position: number;
+};
 
 export type Product = {
   id: number;
@@ -12,6 +21,8 @@ export type Product = {
   category: Category | null;
   /** Lowest Variant price in kuruş (KDV included); null when the Product has no Variants. */
   fromPriceKurus: number | null;
+  /** Cover image shown on the listing; the first image in the reorder. */
+  coverImage: ProductImage | null;
 };
 
 export type Variant = {
@@ -23,7 +34,11 @@ export type Variant = {
   soldOut: boolean;
 };
 
-export type ProductDetail = Omit<Product, "fromPriceKurus"> & { variants: Variant[] };
+export type ProductDetail = Omit<Product, "fromPriceKurus" | "coverImage"> & {
+  /** All images of the Product in display order; the first one is the cover. */
+  images: ProductImage[];
+  variants: Variant[];
+};
 
 /** A Variant as the Admin edits it: raw Stok and KDV, no "Tükendi" projection. */
 export type AdminVariant = {
@@ -44,6 +59,7 @@ export type AdminProduct = {
   description: string;
   published: boolean;
   category: Category | null;
+  images: ProductImage[];
   variants: AdminVariant[];
 };
 
@@ -53,6 +69,31 @@ function assertNonNegativeInteger(value: number, label: string): void {
   }
 }
 
+/** Upload size limit for a single image; uploads above it are rejected. */
+export const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
+
+type ImageType = { contentType: string; extension: string };
+
+/**
+ * Identifies an uploaded image by its content (magic bytes), never by the
+ * client-declared file name or content type.
+ */
+function sniffImageType(bytes: Uint8Array): ImageType | null {
+  const startsWithPng =
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+  const startsWithJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const startsWithWebp =
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  if (startsWithPng) return { contentType: "image/png", extension: "png" };
+  if (startsWithJpeg) return { contentType: "image/jpeg", extension: "jpg" };
+  if (startsWithWebp) return { contentType: "image/webp", extension: "webp" };
+  return null;
+}
+
 type JoinedCategory = { id: number | null; slug: string | null; name: string | null } | null;
 
 /** A left-joined category comes back all-null when absent; normalise it to Category | null. */
@@ -60,7 +101,35 @@ function toCategory(category: JoinedCategory): Category | null {
   return category && category.id !== null ? (category as Category) : null;
 }
 
-export function createCatalog(db: Database) {
+type ImageRow = { id: number; storageKey: string; position: number };
+
+export type CatalogOptions = {
+  /** Storage port used to upload and remove image objects and build their public URLs. */
+  storage?: MediaStorage;
+};
+
+export function createCatalog(db: Database, options: CatalogOptions = {}) {
+  const storage = options.storage;
+
+  /** Images of a Product, cheapest to fetch with the common position/id order. */
+  async function selectImages(productId: number): Promise<ImageRow[]> {
+    return db
+      .select({
+        id: productImages.id,
+        storageKey: productImages.storageKey,
+        position: productImages.position,
+      })
+      .from(productImages)
+      .where(eq(productImages.productId, productId))
+      .orderBy(asc(productImages.position), asc(productImages.id));
+  }
+
+  /** Maps rows to public images; without a bound storage the images degrade to none. */
+  function toImages(rows: ImageRow[]): ProductImage[] {
+    if (!storage) return [];
+    return rows.map((row) => ({ id: row.id, url: storage.publicUrl(row.storageKey), position: row.position }));
+  }
+
   async function selectAdminVariants(productId: number): Promise<AdminVariant[]> {
     return db
       .select({
@@ -107,6 +176,72 @@ export function createCatalog(db: Database) {
         .where(eq(variants.productId, productId));
       await db.insert(variants).values({ ...input, productId, position: existing.length });
     },
+    /**
+     * Uploads one or more images for a Product with the Media storage port and
+     * appends them at the end of the reorder. The type is validated from the
+     * bytes of every file before anything is uploaded.
+     */
+    async addProductImages(
+      productId: number,
+      files: ReadonlyArray<Uint8Array>,
+    ): Promise<void> {
+      if (!storage) throw new Error("Image storage is not configured");
+      const existing = await db
+        .select({ id: productImages.id })
+        .from(productImages)
+        .where(eq(productImages.productId, productId));
+      const uploads = files.map((bytes, index) => {
+        const type = sniffImageType(bytes);
+        if (!type) throw new Error("Unsupported image type");
+        if (bytes.length > MAX_PRODUCT_IMAGE_BYTES) {
+          throw new Error(`Image exceeds the ${MAX_PRODUCT_IMAGE_BYTES / (1024 * 1024)} MB limit`);
+        }
+        return {
+          key: `products/${productId}/${randomUUID()}.${type.extension}`,
+          bytes,
+          contentType: type.contentType,
+          position: existing.length + index,
+        };
+      });
+      for (const upload of uploads) {
+        await storage.put({ key: upload.key, bytes: upload.bytes, contentType: upload.contentType });
+      }
+      await db
+        .insert(productImages)
+        .values(uploads.map((upload) => ({ productId, storageKey: upload.key, position: upload.position })));
+    },
+    /** Moves an image one step up or down in the reorder; edge moves are a no-op. */
+    async moveProductImage(imageId: number, direction: "up" | "down"): Promise<void> {
+      const [image] = await db
+        .select({ id: productImages.id, productId: productImages.productId, position: productImages.position })
+        .from(productImages)
+        .where(eq(productImages.id, imageId));
+      if (!image) throw new Error("Image not found");
+      const siblings = await selectImages(image.productId);
+      const index = siblings.findIndex((row) => row.id === imageId);
+      const neighbourIndex = direction === "up" ? index - 1 : index + 1;
+      if (neighbourIndex < 0 || neighbourIndex >= siblings.length) return;
+      const neighbour = siblings[neighbourIndex];
+      await db
+        .update(productImages)
+        .set({ position: neighbour.position })
+        .where(eq(productImages.id, image.id));
+      await db
+        .update(productImages)
+        .set({ position: image.position })
+        .where(eq(productImages.id, neighbour.id));
+    },
+    /** Removes an image from the reorder and from storage; the rest keeps its order. */
+    async deleteProductImage(imageId: number): Promise<void> {
+      if (!storage) throw new Error("Image storage is not configured");
+      const [image] = await db
+        .select({ id: productImages.id, storageKey: productImages.storageKey })
+        .from(productImages)
+        .where(eq(productImages.id, imageId));
+      if (!image) throw new Error("Image not found");
+      await storage.delete(image.storageKey);
+      await db.delete(productImages).where(eq(productImages.id, imageId));
+    },
     /** A published Product with its Variants, or null if unknown or unpublished. */
     async getProduct(slug: string): Promise<ProductDetail | null> {
       const [row] = await db
@@ -129,6 +264,7 @@ export function createCatalog(db: Database) {
       return {
         ...row,
         category: toCategory(row.category),
+        images: toImages(await selectImages(row.id)),
         variants: variantRows.map((v) => ({
           id: v.id,
           name: v.name,
@@ -160,9 +296,27 @@ export function createCatalog(db: Database) {
         )
         .groupBy(products.id, categories.id)
         .orderBy(asc(products.id));
+      /** One extra ordered query; the first row per Product is the cover. */
+      const imageRows = rows.length
+        ? await db
+            .select({
+              id: productImages.id,
+              productId: productImages.productId,
+              storageKey: productImages.storageKey,
+              position: productImages.position,
+            })
+            .from(productImages)
+            .where(inArray(productImages.productId, rows.map((row) => row.id)))
+            .orderBy(asc(productImages.position), asc(productImages.id))
+        : [];
+      const coverByProduct = new Map<number, ImageRow>();
+      for (const row of imageRows) {
+        if (!coverByProduct.has(row.productId)) coverByProduct.set(row.productId, row);
+      }
       return rows.map((row) => ({
         ...row,
         category: toCategory(row.category),
+        coverImage: toImages(coverByProduct.has(row.id) ? [coverByProduct.get(row.id) as ImageRow] : [])[0] ?? null,
       }));
     },
     /** Every Product, published or not, with its raw Variants; for the Admin panel. */
@@ -183,6 +337,7 @@ export function createCatalog(db: Database) {
         rows.map(async (row) => ({
           ...row,
           category: toCategory(row.category),
+          images: toImages(await selectImages(row.id)),
           variants: await selectAdminVariants(row.id),
         })),
       );
@@ -205,6 +360,7 @@ export function createCatalog(db: Database) {
       return {
         ...row,
         category: toCategory(row.category),
+        images: toImages(await selectImages(id)),
         variants: await selectAdminVariants(id),
       };
     },

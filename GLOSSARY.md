@@ -38,6 +38,10 @@ _Avoid_: Tür, koleksiyon
 Bir Ürünün satın alınabilir tek biçimi (ör. 500 ml cam şişe, 5 L teneke). Fiyat ve stok Varyant'ta tutulur.
 _Avoid_: Seçenek, SKU, boyut
 
+**Ürün Görseli** (`ProductImage`):
+Ürüne Admin tarafından yüklenen fotoğraf; bulut nesne depolamada (Media portu) durur, mağazada optimize gösterilir. İlk görsel listeleme kapak görselidir.
+_Avoid_: Fotoğraf dosyası, medya öğesi
+
 **Stok** (`Stock`):
 Bir Varyantın satılabilir adet sayısı. Sepete eklemek stok ayırmaz; ödeme onayında düşer.
 _Avoid_: Envanter

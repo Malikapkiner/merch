@@ -29,3 +29,13 @@ export const variants = pgTable("variants", {
   stock: integer("stock").notNull().default(0),
   position: integer("position").notNull().default(0),
 });
+
+export const productImages = pgTable("product_images", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id")
+    .notNull()
+    .references(() => products.id, { onDelete: "cascade" }),
+  /** Object key in the Media storage port; used to build the public URL. */
+  storageKey: text("storage_key").notNull().unique(),
+  position: integer("position").notNull().default(0),
+});

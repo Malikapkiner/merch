@@ -6,7 +6,20 @@ import { redirect } from "next/navigation";
 import { getAccounts } from "@/lib/accounts";
 import { ADMIN_SESSION_COOKIE, requireAdmin } from "@/lib/admin-session";
 import { getCatalog } from "@/lib/catalog";
+import { mediaStorage } from "@/lib/media";
 import { parsePriceInput } from "@/lib/price-input";
+
+function imageUploadFailure(error: unknown): string {
+  if (error instanceof Error) {
+    if (/Unsupported image type/.test(error.message)) {
+      return "Desteklenmeyen dosya türü. Yalnızca JPEG, PNG ve WebP görsel yükleyin.";
+    }
+    if (/5 MB/.test(error.message)) {
+      return "Görsel dosyası 5 MB sınırını aşıyor.";
+    }
+  }
+  return "Görseller yüklenemedi.";
+}
 
 export type LoginState = { error?: string } | undefined;
 
@@ -171,6 +184,52 @@ export async function createCategoryAction(formData: FormData): Promise<void> {
   if (!slug || !name) fail(back, "Kısa ad ve kategori adı zorunludur.");
 
   await getCatalog().createCategory({ slug, name });
+  revalidatePath("/urunler");
+  redirect(`${back}?durum=kaydedildi`);
+}
+
+export async function uploadProductImagesAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const productId = nonNegativeInt(formData, "productId");
+  if (productId === null) fail("/admin", "Ürün bulunamadı.");
+  const back = `/admin/urunler/${productId}`;
+
+  const files = formData.getAll("images").filter((file): file is File => file instanceof File && file.size > 0);
+  if (files.length === 0) fail(back, "Yüklenecek görsel seçilmedi.");
+  const storage = mediaStorage();
+  if (!storage) fail(back, "Görsel depolama yapılandırılmadı.");
+
+  const buffers = await Promise.all(files.map((file) => file.arrayBuffer()));
+  try {
+    await getCatalog().addProductImages(productId, buffers.map((buffer) => new Uint8Array(buffer)));
+  } catch (error) {
+    fail(back, imageUploadFailure(error));
+  }
+  revalidatePath("/urunler");
+  redirect(`${back}?durum=kaydedildi`);
+}
+
+export async function moveProductImageAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const productId = nonNegativeInt(formData, "productId");
+  const imageId = nonNegativeInt(formData, "imageId");
+  if (productId === null || imageId === null) fail("/admin", "Görsel bulunamadı.");
+  const back = `/admin/urunler/${productId}`;
+  const direction = textField(formData, "direction") === "down" ? "down" : "up";
+
+  await getCatalog().moveProductImage(imageId, direction);
+  revalidatePath("/urunler");
+  redirect(`${back}?durum=kaydedildi`);
+}
+
+export async function deleteProductImageAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const productId = nonNegativeInt(formData, "productId");
+  const imageId = nonNegativeInt(formData, "imageId");
+  if (productId === null || imageId === null) fail("/admin", "Görsel bulunamadı.");
+  const back = `/admin/urunler/${productId}`;
+
+  await getCatalog().deleteProductImage(imageId);
   revalidatePath("/urunler");
   redirect(`${back}?durum=kaydedildi`);
 }

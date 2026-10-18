@@ -1,11 +1,20 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdminStatus } from "@/components/admin-status";
 import { requireAdmin } from "@/lib/admin-session";
 import { getCatalog } from "@/lib/catalog";
 import { formatPriceInput } from "@/lib/price-input";
-import { addVariantAction, setStockAction, updateProductAction, updateVariantAction } from "../../../actions";
+import {
+  addVariantAction,
+  deleteProductImageAction,
+  moveProductImageAction,
+  setStockAction,
+  updateProductAction,
+  updateVariantAction,
+  uploadProductImagesAction,
+} from "../../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -178,6 +187,70 @@ export default async function EditProductPage({ params, searchParams }: Props) {
           </div>
           <button className="button" type="submit">
             Ekle
+          </button>
+        </form>
+      </section>
+
+      <section className="admin-card">
+        <h2>Görseller</h2>
+        {product.images.length === 0 ? (
+          <p>Bu ürünün henüz görseli yok.</p>
+        ) : (
+          <ul className="image-list">
+            {product.images.map((image, index) => (
+              <li key={image.id} className="image-row">
+                <Image src={image.url} alt="" width={96} height={96} unoptimized className="image-row__thumb" />
+                <p className="muted">{index + 1}. görsel</p>
+                <div className="image-row__actions">
+                  <form action={moveProductImageAction} className="admin-form admin-form--inline">
+                    <input type="hidden" name="productId" value={product.id} />
+                    <input type="hidden" name="imageId" value={image.id} />
+                    <button
+                      className="link-button"
+                      type="submit"
+                      name="direction"
+                      value="up"
+                      disabled={index === 0}
+                    >
+                      Yukarı
+                    </button>
+                    <button
+                      className="link-button"
+                      type="submit"
+                      name="direction"
+                      value="down"
+                      disabled={index === product.images.length - 1}
+                    >
+                      Aşağı
+                    </button>
+                  </form>
+                  <form action={deleteProductImageAction} className="image-row__delete">
+                    <input type="hidden" name="productId" value={product.id} />
+                    <input type="hidden" name="imageId" value={image.id} />
+                    <button className="link-button" type="submit">
+                      Sil
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form action={uploadProductImagesAction} className="admin-form">
+          <input type="hidden" name="productId" value={product.id} />
+          <div className="field">
+            <label htmlFor="images">Yeni görseller (JPEG, PNG veya WebP; tek dosya en fazla 5 MB)</label>
+            <input
+              id="images"
+              name="images"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              required
+            />
+          </div>
+          <button className="button" type="submit">
+            Yükle
           </button>
         </form>
       </section>
