@@ -1,7 +1,58 @@
-node_modules
-.next
-next-env.d.ts
+# Dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+
+# Next.js build output
+.next/
+out/
+build/
+.turbo/
+.vercel/
+
+# TypeScript build artifacts
 *.tsbuildinfo
+next-env.d.ts
+
+# Environment files
+# .env.local holds real credentials; only .env.example is committed.
 .env
 .env.*
 !.env.example
+
+# Test output
+coverage/
+*.lcov
+test-results/
+playwright-report/
+blob-report/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime / local data
+*.pid
+*.seed
+tmp/
+temp/
+
+# Uploaded media (product images written to disk in dev)
+public/uploads/
+uploads/
+
+# Editors and tooling
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS noise
+.DS_Store
+Thumbs.db
