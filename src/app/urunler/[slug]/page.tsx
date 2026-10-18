@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { getCatalog } from "@/lib/catalog";
-import { VariantPicker } from "./variant-picker";
+import { BuyBox } from "./buy-box";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,7 @@ export default async function ProductDetailPage({ params }: Props) {
         {product.category && <p className="eyebrow">{product.category.name}</p>}
         <h1 className="heading-section">{product.name}</h1>
         <p className="lead">{product.description}</p>
-        <VariantPicker
+        <BuyBox
           variants={product.variants.map(({ id, name, priceKurus, soldOut }) => ({ id, name, priceKurus, soldOut }))}
         />
       </div>

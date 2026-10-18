@@ -52,6 +52,17 @@ export type ProductDetail = Omit<Product, "fromPriceKurus" | "coverImage"> & {
   variants: Variant[];
 };
 
+/** A Variant with its Product context, used to resolve a customer-held cart. */
+export type VariantWithProduct = {
+  id: number;
+  name: string;
+  productSlug: string;
+  productName: string;
+  /** Price in kuruş, KDV included. */
+  priceKurus: number;
+  stock: number;
+};
+
 /** A Variant as the Admin edits it: raw Stok and KDV, no "Tükendi" projection. */
 export type AdminVariant = {
   id: number;
@@ -297,6 +308,23 @@ export function createCatalog(db: Database, options: CatalogOptions = {}) {
           soldOut: v.stock <= 0,
         })),
       };
+    },
+    /** Variants by id with their Product context, for resolving a customer-held cart. */
+    async getVariantsByIds(ids: number[]): Promise<VariantWithProduct[]> {
+      if (ids.length === 0) return [];
+      return db
+        .select({
+          id: variants.id,
+          name: variants.name,
+          productSlug: products.slug,
+          productName: products.name,
+          priceKurus: variants.priceKurus,
+          stock: variants.stock,
+        })
+        .from(variants)
+        .innerJoin(products, eq(variants.productId, products.id))
+        .where(and(inArray(variants.id, ids), eq(products.published, true)))
+        .orderBy(asc(variants.id));
     },
     /** Published Products only, optionally limited to one category. */
     async listProducts(filter: { categorySlug?: string } = {}): Promise<Product[]> {

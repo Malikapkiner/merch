@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { getAccounts } from "@/lib/accounts";
 import { ADMIN_SESSION_COOKIE, requireAdmin } from "@/lib/admin-session";
 import { getCatalog } from "@/lib/catalog";
+import { getShipping } from "@/lib/shipping";
 import { MAX_PRODUCT_IMAGE_BYTES, ProductImageError } from "@/modules/catalog";
 import { mediaStorage } from "@/lib/media";
 import { parsePriceInput } from "@/lib/price-input";
@@ -188,6 +189,17 @@ export async function createCategoryAction(formData: FormData): Promise<void> {
 
   await getCatalog().createCategory({ slug, name });
   revalidatePath("/urunler");
+  redirect(`${back}?durum=kaydedildi`);
+}
+
+export async function updateShippingSettingsAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const back = "/admin/kargo";
+  const shippingFeeKurus = parsePriceInput(textField(formData, "shippingFee"));
+  const freeShippingThresholdKurus = parsePriceInput(textField(formData, "threshold"));
+  if (shippingFeeKurus === null || freeShippingThresholdKurus === null) fail(back, "Kargo bilgileri geçersiz.");
+
+  await getShipping().setSettings({ shippingFeeKurus, freeShippingThresholdKurus });
   redirect(`${back}?durum=kaydedildi`);
 }
 

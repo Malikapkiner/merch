@@ -46,6 +46,12 @@ _Avoid_: Fotoğraf dosyası, medya öğesi
 Bir Varyantın satılabilir adet sayısı. Sepete eklemek stok ayırmaz; ödeme onayında düşer.
 _Avoid_: Envanter
 
+## Sepet
+
+**Sepet** (`Cart`):
+Müşterinin satın almadan önce Varyantları topladığı, tarayıcıda saklanan geçici liste. Fiyat ve Stok her zaman güncel Varyant verisinden okunur; sepete eklemek Stok ayırmaz.
+_Avoid_: Alışveriş listesi, basket
+
 ## Sipariş
 
 **Sipariş** (`Order`):
@@ -59,6 +65,10 @@ _Avoid_: Statü, aşama
 **Havale Siparişi** (`BankTransferOrder`):
 Kredi kartı yerine havale/EFT ile ödenen Sipariş; Admin ödemeyi elle onaylayana kadar Ödeme Bekliyor durumunda kalır.
 _Avoid_: Manuel sipariş
+
+**Kargo Ücreti** (`ShippingFee`):
+Ücretsiz Kargo Eşiği'nin altındaki Sepetlerde alınan sabit teslimat ücreti; Admin panelinden ayarlanır ve deploy gerektirmeden geçerli olur.
+_Avoid_: Teslimat ücreti, gönderi bedeli
 
 **Ücretsiz Kargo Eşiği** (`FreeShippingThreshold`):
 Sepet tutarının üstünde kargo ücretinin alınmadığı tutar.

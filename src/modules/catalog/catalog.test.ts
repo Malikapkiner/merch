@@ -165,4 +165,35 @@ describe("Catalog", () => {
     await expect(catalog.updateVariant(variant.id, { stock: -1 })).rejects.toThrow();
     await expect(catalog.updateVariant(variant.id, { priceKurus: -5 })).rejects.toThrow();
   });
+
+  it("returns cart variants with their product context for the given ids", async () => {
+    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    await catalog.addVariant(product.id, { name: "500 ml", priceKurus: 34950, vatRatePercent: 10, stock: 4 });
+    const [variant] = (await catalog.getProductForAdmin(product.id))!.variants;
+
+    const variants = await catalog.getVariantsByIds([variant.id]);
+
+    expect(variants).toEqual([
+      {
+        id: variant.id,
+        name: "500 ml",
+        productSlug: "erken-hasat",
+        productName: "Erken Hasat",
+        priceKurus: 34950,
+        stock: 4,
+      },
+    ]);
+  });
+
+  it("omits the variants of an unpublished product from the cart read", async () => {
+    const product = await catalog.createProduct({ slug: "taslak", name: "Taslak", published: false });
+    await catalog.addVariant(product.id, { name: "500 ml", priceKurus: 34950, vatRatePercent: 10, stock: 4 });
+    const [variant] = (await catalog.getProductForAdmin(product.id))!.variants;
+
+    expect(await catalog.getVariantsByIds([variant.id])).toEqual([]);
+  });
+
+  it("returns no cart variants for an empty id list", async () => {
+    expect(await catalog.getVariantsByIds([])).toEqual([]);
+  });
 });

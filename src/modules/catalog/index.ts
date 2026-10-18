@@ -11,4 +11,5 @@ export type {
   ProductImage,
   ProductImageErrorReason,
   Variant,
+  VariantWithProduct,
 } from "./catalog";

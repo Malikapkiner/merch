@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CartIndicator } from "@/components/cart-indicator";
 import { navLinks, siteConfig } from "@/config/site";
 
 export function SiteHeader() {
@@ -15,10 +16,7 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-        {/* Placeholder: wired to the real cart in a later ticket. */}
-        <Link href="/sepet" className="cart-indicator" aria-label="Sepet, 0 ürün">
-          Sepet (0)
-        </Link>
+        <CartIndicator />
       </div>
     </header>
   );
