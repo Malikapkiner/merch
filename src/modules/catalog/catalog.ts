@@ -13,6 +13,18 @@ export type ProductImage = {
   position: number;
 };
 
+/** Why an image upload was rejected; thrown as a `ProductImageError` reason. */
+export type ProductImageErrorReason = "unsupported-image-type" | "image-too-large";
+
+export class ProductImageError extends Error {
+  constructor(
+    readonly reason: ProductImageErrorReason,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export type Product = {
   id: number;
   slug: string;
@@ -186,29 +198,38 @@ export function createCatalog(db: Database, options: CatalogOptions = {}) {
       files: ReadonlyArray<Uint8Array>,
     ): Promise<void> {
       if (!storage) throw new Error("Image storage is not configured");
+      /** Every file is validated and typed before anything is uploaded or counted. */
+      const uploads = files.map((bytes) => {
+        const type = sniffImageType(bytes);
+        if (!type) throw new ProductImageError("unsupported-image-type", "Unsupported image type");
+        if (bytes.length > MAX_PRODUCT_IMAGE_BYTES) {
+          throw new ProductImageError(
+            "image-too-large",
+            `Image exceeds the ${MAX_PRODUCT_IMAGE_BYTES / (1024 * 1024)} MB limit`,
+          );
+        }
+        return { key: `products/${productId}/${randomUUID()}.${type.extension}`, bytes, contentType: type.contentType };
+      });
       const existing = await db
         .select({ id: productImages.id })
         .from(productImages)
         .where(eq(productImages.productId, productId));
-      const uploads = files.map((bytes, index) => {
-        const type = sniffImageType(bytes);
-        if (!type) throw new Error("Unsupported image type");
-        if (bytes.length > MAX_PRODUCT_IMAGE_BYTES) {
-          throw new Error(`Image exceeds the ${MAX_PRODUCT_IMAGE_BYTES / (1024 * 1024)} MB limit`);
+      const storedKeys: string[] = [];
+      try {
+        for (const upload of uploads) {
+          await storage.put({ key: upload.key, bytes: upload.bytes, contentType: upload.contentType });
+          storedKeys.push(upload.key);
         }
-        return {
-          key: `products/${productId}/${randomUUID()}.${type.extension}`,
-          bytes,
-          contentType: type.contentType,
-          position: existing.length + index,
-        };
-      });
-      for (const upload of uploads) {
-        await storage.put({ key: upload.key, bytes: upload.bytes, contentType: upload.contentType });
+      } catch (error) {
+        // Best effort: don't leave already-stored objects orphaned in the bucket.
+        await Promise.allSettled(storedKeys.map((key) => storage.delete(key)));
+        throw error;
       }
       await db
         .insert(productImages)
-        .values(uploads.map((upload) => ({ productId, storageKey: upload.key, position: upload.position })));
+        .values(
+          uploads.map((upload, index) => ({ productId, storageKey: upload.key, position: existing.length + index })),
+        );
     },
     /** Moves an image one step up or down in the reorder; edge moves are a no-op. */
     async moveProductImage(imageId: number, direction: "up" | "down"): Promise<void> {
@@ -222,14 +243,17 @@ export function createCatalog(db: Database, options: CatalogOptions = {}) {
       const neighbourIndex = direction === "up" ? index - 1 : index + 1;
       if (neighbourIndex < 0 || neighbourIndex >= siblings.length) return;
       const neighbour = siblings[neighbourIndex];
-      await db
-        .update(productImages)
-        .set({ position: neighbour.position })
-        .where(eq(productImages.id, image.id));
-      await db
-        .update(productImages)
-        .set({ position: image.position })
-        .where(eq(productImages.id, neighbour.id));
+      // One transaction keeps the two positions from ever collapsing into duplicates.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(productImages)
+          .set({ position: neighbour.position })
+          .where(eq(productImages.id, image.id));
+        await tx
+          .update(productImages)
+          .set({ position: image.position })
+          .where(eq(productImages.id, neighbour.id));
+      });
     },
     /** Removes an image from the reorder and from storage; the rest keeps its order. */
     async deleteProductImage(imageId: number): Promise<void> {

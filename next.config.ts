@@ -8,16 +8,9 @@ import type { RemotePattern } from "next/dist/shared/lib/image-config";
 function r2ImagePatterns(): Array<URL | RemotePattern> {
   const base = process.env.R2_PUBLIC_BASE_URL;
   if (!base) return [];
-  return [new URL(`${pathnameOf(base)}/**`, originOf(base))];
-}
-
-function originOf(base: string): string {
   const url = new URL(base);
-  return url.origin;
-}
-
-function pathnameOf(base: string): string {
-  return new URL(base).pathname.replace(/\/+$/, "");
+  const pathname = `${url.pathname.replace(/\/+$/, "")}/**`;
+  return [new URL(pathname, url.origin)];
 }
 
 const nextConfig: NextConfig = {

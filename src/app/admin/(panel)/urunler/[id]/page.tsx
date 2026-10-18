@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { AdminStatus } from "@/components/admin-status";
 import { requireAdmin } from "@/lib/admin-session";
 import { getCatalog } from "@/lib/catalog";
+import { MAX_PRODUCT_IMAGE_BYTES } from "@/modules/catalog";
 import { formatPriceInput } from "@/lib/price-input";
 import {
   addVariantAction,
@@ -239,7 +240,9 @@ export default async function EditProductPage({ params, searchParams }: Props) {
         <form action={uploadProductImagesAction} className="admin-form">
           <input type="hidden" name="productId" value={product.id} />
           <div className="field">
-            <label htmlFor="images">Yeni görseller (JPEG, PNG veya WebP; tek dosya en fazla 5 MB)</label>
+            <label htmlFor="images">
+              Yeni görseller (JPEG, PNG veya WebP; tek dosya en fazla {MAX_PRODUCT_IMAGE_BYTES / (1024 * 1024)} MB)
+            </label>
             <input
               id="images"
               name="images"

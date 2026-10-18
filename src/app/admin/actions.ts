@@ -6,16 +6,19 @@ import { redirect } from "next/navigation";
 import { getAccounts } from "@/lib/accounts";
 import { ADMIN_SESSION_COOKIE, requireAdmin } from "@/lib/admin-session";
 import { getCatalog } from "@/lib/catalog";
+import { MAX_PRODUCT_IMAGE_BYTES, ProductImageError } from "@/modules/catalog";
 import { mediaStorage } from "@/lib/media";
 import { parsePriceInput } from "@/lib/price-input";
 
+const MAX_IMAGE_LABEL = `${MAX_PRODUCT_IMAGE_BYTES / (1024 * 1024)} MB`;
+
 function imageUploadFailure(error: unknown): string {
-  if (error instanceof Error) {
-    if (/Unsupported image type/.test(error.message)) {
+  if (error instanceof ProductImageError) {
+    if (error.reason === "unsupported-image-type") {
       return "Desteklenmeyen dosya türü. Yalnızca JPEG, PNG ve WebP görsel yükleyin.";
     }
-    if (/5 MB/.test(error.message)) {
-      return "Görsel dosyası 5 MB sınırını aşıyor.";
+    if (error.reason === "image-too-large") {
+      return `Görsel dosyası ${MAX_IMAGE_LABEL} sınırını aşıyor.`;
     }
   }
   return "Görseller yüklenemedi.";
@@ -217,7 +220,11 @@ export async function moveProductImageAction(formData: FormData): Promise<void> 
   const back = `/admin/urunler/${productId}`;
   const direction = textField(formData, "direction") === "down" ? "down" : "up";
 
-  await getCatalog().moveProductImage(imageId, direction);
+  try {
+    await getCatalog().moveProductImage(imageId, direction);
+  } catch {
+    fail(back, "Görsel taşınamadı.");
+  }
   revalidatePath("/urunler");
   redirect(`${back}?durum=kaydedildi`);
 }
@@ -229,7 +236,11 @@ export async function deleteProductImageAction(formData: FormData): Promise<void
   if (productId === null || imageId === null) fail("/admin", "Görsel bulunamadı.");
   const back = `/admin/urunler/${productId}`;
 
-  await getCatalog().deleteProductImage(imageId);
+  try {
+    await getCatalog().deleteProductImage(imageId);
+  } catch {
+    fail(back, "Görsel silinemedi.");
+  }
   revalidatePath("/urunler");
   redirect(`${back}?durum=kaydedildi`);
 }

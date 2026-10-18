@@ -23,11 +23,17 @@ function gif(): Uint8Array {
 beforeEach(() => testDb.truncateAll());
 afterAll(() => testDb.close());
 
+/** A catalog with a fake storage bound and one Product ready to receive images. */
+async function catalogWithProduct() {
+  const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
+  const catalog = createCatalog(testDb.db, { storage });
+  const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+  return { storage, catalog, product };
+}
+
 describe("Product images", () => {
   it("shows the first uploaded image as the listing cover", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
 
     await catalog.addProductImages(product.id, [pngBytes(), jpegBytes()]);
 
@@ -37,9 +43,7 @@ describe("Product images", () => {
   });
 
   it("returns the product detail images in upload order", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
 
     await catalog.addProductImages(product.id, [pngBytes(), jpegBytes(), pngBytes()]);
 
@@ -53,9 +57,7 @@ describe("Product images", () => {
   });
 
   it("shows the images to the admin on the product edit read", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
 
     await catalog.addProductImages(product.id, [jpegBytes()]);
 
@@ -67,9 +69,7 @@ describe("Product images", () => {
   });
 
   it("accepts WebP images", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
     const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50]);
 
     await catalog.addProductImages(product.id, [webp]);
@@ -80,19 +80,14 @@ describe("Product images", () => {
   });
 
   it("rejects files that are not JPEG, PNG or WebP without uploading anything", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
-    const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x00, 0x00]);
+    const { storage, catalog, product } = await catalogWithProduct();
 
-    await expect(catalog.addProductImages(product.id, [gif])).rejects.toThrow(/Unsupported image type/);
+    await expect(catalog.addProductImages(product.id, [gif()])).rejects.toThrow(/Unsupported image type/);
     expect(storage.objects()).toHaveLength(0);
   });
 
   it("rejects a spoofed file that is not an image despite an image-like name", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
     const plainText = new TextEncoder().encode("not an image");
 
     await expect(catalog.addProductImages(product.id, [plainText])).rejects.toThrow(/Unsupported image type/);
@@ -100,9 +95,7 @@ describe("Product images", () => {
   });
 
   it("rejects images larger than 5 MB without uploading anything", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
     // A valid JPEG header followed by more than 5 MB of pixel data.
     const oversized = new Uint8Array(5 * 1024 * 1024 + 1);
     oversized.set(jpegBytes().slice(0, 4));
@@ -112,18 +105,14 @@ describe("Product images", () => {
   });
 
   it("rejects the whole batch when one image is invalid, uploading none of them", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
 
     await expect(catalog.addProductImages(product.id, [pngBytes(), gif()])).rejects.toThrow(/Unsupported image type/);
     expect(storage.objects()).toHaveLength(0);
   });
 
   it("moves an image up so it becomes the listing cover", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { catalog, product } = await catalogWithProduct();
     await catalog.addProductImages(product.id, [pngBytes(), jpegBytes()]);
 
     const [before] = await catalog.listProducts();
@@ -140,9 +129,7 @@ describe("Product images", () => {
   });
 
   it("moves the first image down so the second covers the listing", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { catalog, product } = await catalogWithProduct();
     await catalog.addProductImages(product.id, [pngBytes(), jpegBytes()]);
 
     const detail = await catalog.getProduct("erken-hasat");
@@ -157,9 +144,7 @@ describe("Product images", () => {
   });
 
   it("deletes an image, removes its object from storage and keeps the rest in order", async () => {
-    const storage = createFakeMediaStorage({ publicBaseUrl: "https://media.example.test" });
-    const catalog = createCatalog(testDb.db, { storage });
-    const product = await catalog.createProduct({ slug: "erken-hasat", name: "Erken Hasat" });
+    const { storage, catalog, product } = await catalogWithProduct();
     await catalog.addProductImages(product.id, [pngBytes(), jpegBytes(), pngBytes()]);
 
     const detail = await catalog.getProduct("erken-hasat");
