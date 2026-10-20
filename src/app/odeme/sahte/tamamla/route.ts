@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   const form = await request.formData();
   const token = String(form.get("token") ?? "");
   const session = fake.session(token);
-  if (!session) return Response.redirect(new URL("/odeme?hata=odeme-basarisiz", request.url), 303);
+  if (!session) return Response.redirect(new URL("/sepet?hata=odeme-basarisiz", request.url), 303);
 
   if (form.get("outcome") === "approve") fake.approve(token);
   else fake.decline(token);

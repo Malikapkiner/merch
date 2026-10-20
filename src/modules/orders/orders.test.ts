@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { openTestDatabase } from "../../../tests/database";
 import { createCatalog } from "../catalog";
 import { createFakePaymentProvider } from "../payment";
@@ -67,7 +67,7 @@ function checkout(overrides: Partial<CheckoutInput> = {}): CheckoutInput {
 
 /** Places an Order and returns its payment token, failing the test if placement fails. */
 async function placeOrder(input: CheckoutInput) {
-  const result = await orders.placeOrder(input, { callbackUrl: CALLBACK_URL });
+  const result = await orders.placeOrder(input, { callbackUrl: CALLBACK_URL, customerIp: "85.105.12.34" });
   if (!result.ok) throw new Error(`placement failed: ${result.reason}`);
   const token = new URL(result.paymentUrl, "https://magaza.test").searchParams.get("token")!;
   return { orderNumber: result.orderNumber, token };
@@ -111,6 +111,37 @@ describe("Placing an Order", () => {
       amountKurus: 75900,
       callbackUrl: CALLBACK_URL,
     });
+  });
+
+  it("gives the provider the shipping fee, both addresses and the Customer's TCKN", async () => {
+    await shipping.setSettings({ shippingFeeKurus: 6000, freeShippingThresholdKurus: 100000 });
+    const oil = await variantWith({ priceKurus: 34950, stock: 5, name: "500 ml" });
+
+    const { token } = await placeOrder(
+      checkout({
+        items: [{ variantId: oil.id, quantity: 2 }],
+        billing: { ...checkout().billing, name: "Zeytin Ltd.", district: "Çeşme", taxNumber: "12345678901" },
+      }),
+    );
+
+    expect(payments.session(token)).toMatchObject({
+      amountKurus: 75900,
+      shippingFeeKurus: 6000,
+      customer: { name: "Ayşe Yılmaz", email: "ayse@example.com", phone: "+905321234567", identityNumber: "12345678901", ip: "85.105.12.34" },
+      shippingAddress: { contactName: "Ayşe Yılmaz", city: "İzmir", address: "Zeytinalanı Mah. Zeytin Sk. No: 3 Urla/İzmir" },
+      billingAddress: { contactName: "Zeytin Ltd.", city: "İzmir", address: "Zeytinalanı Mah. Zeytin Sk. No: 3 Çeşme/İzmir" },
+      lines: [{ name: "Erken Hasat Zeytinyağı 500 ml", unitPriceKurus: 34950, quantity: 2 }],
+    });
+  });
+
+  it("gives the provider no identity number when the tax number is a company VKN", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+
+    const { token } = await placeOrder(
+      checkout({ items: [{ variantId: oil.id, quantity: 1 }], billing: { ...checkout().billing, taxNumber: "1234567890" } }),
+    );
+
+    expect(payments.session(token)?.customer.identityNumber).toBeNull();
   });
 
   it("refuses to start a payment until the contracts are accepted", async () => {
@@ -261,7 +292,8 @@ describe("Confirming a payment", () => {
 
     const early = await orders.confirmPayment(token);
 
-    expect(early).toEqual({ ok: false, reason: "payment-failed" });
+    expect(early).toEqual({ ok: false, reason: "payment-pending" });
+    expect(await stockOf(oil.id)).toBe(5);
     expect((await orders.getOrder(orderNumber))?.status).toBe("awaiting_payment");
     payments.approve(token);
     expect(await orders.confirmPayment(token)).toMatchObject({ ok: true, order: { status: "paid" } });
@@ -300,6 +332,25 @@ describe("Confirming a payment", () => {
     expect(once).toEqual({ ok: false, reason: "out-of-stock" });
     expect(again).toEqual({ ok: false, reason: "out-of-stock" });
     expect(payments.cancelledPaymentIds()).toHaveLength(1);
+  });
+
+  it("still tells the Customer it sold out when the provider can't void the payment", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 1 });
+    const items = [{ variantId: oil.id, quantity: 1 }];
+    const winner = await placeOrder(checkout({ items }));
+    const loser = await placeOrder(checkout({ items }));
+    payments.approve(winner.token);
+    payments.approve(loser.token);
+    await orders.confirmPayment(winner.token);
+    payments.refuseCancellations();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await orders.confirmPayment(loser.token);
+
+    expect(result).toEqual({ ok: false, reason: "out-of-stock" });
+    expect((await orders.getOrder(loser.orderNumber))?.status).toBe("cancelled");
+    expect(errors).toHaveBeenCalledOnce();
+    errors.mockRestore();
   });
 
   it("refuses a payment whose verified amount differs from the Order total, and gives it back", async () => {

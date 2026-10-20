@@ -5,11 +5,12 @@ import { addToCart, priceCart } from "../cart";
 import type { CartItem } from "../cart";
 import { createCatalog, decrementStock, InsufficientStockError } from "../catalog";
 import { getCurrentVersion } from "../legal";
-import type { PaymentProvider } from "../payment";
+import type { PaymentAddress, PaymentProvider } from "../payment";
 import { createShipping } from "../shipping";
 import { orderLines, orders } from "./schema";
 import { assertTransition, OrderStatusError } from "./transitions";
 import type {
+  Address,
   CancellationReason,
   CheckoutInput,
   ConfirmPaymentResult,
@@ -39,6 +40,17 @@ function acceptedDocumentVersions(): Record<string, string> {
       return [slug, version];
     }),
   );
+}
+
+function paymentAddress(
+  contactName: string,
+  address: Pick<Address, "province" | "district" | "neighbourhood" | "addressLine">,
+): PaymentAddress {
+  return {
+    contactName,
+    city: address.province,
+    address: `${address.neighbourhood} ${address.addressLine} ${address.district}/${address.province}`,
+  };
 }
 
 const PAYMENT_FAILED: CancellationReason = "payment-failed";
@@ -121,7 +133,10 @@ export function createOrders(db: Database, options: OrdersOptions) {
      * settings, snapshots the details the Customer agreed to, and starts the
      * payment. Stok is not touched until the payment is confirmed.
      */
-    async placeOrder(input: CheckoutInput, placement: { callbackUrl: string }): Promise<PlaceOrderResult> {
+    async placeOrder(
+      input: CheckoutInput,
+      placement: { callbackUrl: string; customerIp?: string | null },
+    ): Promise<PlaceOrderResult> {
       if (!input.acceptedContracts) return { ok: false, reason: "contracts-not-accepted" };
       const validation = validateCheckoutDetails(input);
       if (!validation.ok) return { ok: false, reason: "invalid-details", fields: validation.fields };
@@ -173,8 +188,18 @@ export function createOrders(db: Database, options: OrdersOptions) {
       const session = await payments.startPayment({
         orderNumber,
         amountKurus: totals.totalKurus,
+        shippingFeeKurus: totals.shippingFeeKurus,
         callbackUrl: placement.callbackUrl,
-        customer: { name: shippingAddress.fullName, email, phone },
+        customer: {
+          name: shippingAddress.fullName,
+          email,
+          phone,
+          // An 11-digit tax number is a TCKN; a 10-digit VKN identifies a company, not the Customer.
+          identityNumber: billing.taxNumber?.length === 11 ? billing.taxNumber : null,
+          ip: placement.customerIp ?? null,
+        },
+        shippingAddress: paymentAddress(shippingAddress.fullName, shippingAddress),
+        billingAddress: paymentAddress(billing.name, billing),
         lines: totals.lines.map((line) => ({
           name: `${line.productName} ${line.name}`,
           unitPriceKurus: line.priceKurus,
@@ -194,8 +219,9 @@ export function createOrders(db: Database, options: OrdersOptions) {
      */
     async confirmPayment(token: string): Promise<ConfirmPaymentResult> {
       const result = await payments.retrievePayment(token);
-      // Not finished on the provider's page yet (e.g. a premature or replayed callback): leave the Order open.
-      if (result.status === "pending") return { ok: false, reason: "payment-failed" };
+      // Not settled yet (a premature callback, or a payment held for fraud review): leave the Order open
+      // for a later notification to settle.
+      if (result.status === "pending") return { ok: false, reason: "payment-pending" };
 
       const settlement = await db.transaction(async (tx): Promise<Settlement | null> => {
         // The row lock serialises confirmations of the same Order.
@@ -230,7 +256,13 @@ export function createOrders(db: Database, options: OrdersOptions) {
       });
 
       // Only the confirmation that cancelled the Order gets here with a payment to give back.
-      if (settlement?.paymentIdToCancel) await payments.cancelPayment(settlement.paymentIdToCancel);
+      if (settlement?.paymentIdToCancel) {
+        const paymentId = settlement.paymentIdToCancel;
+        await payments.cancelPayment(paymentId).catch((error: unknown) => {
+          // The Order is already İptal and the Customer is told so; the money goes back by hand.
+          console.error(`Payment ${paymentId} could not be cancelled; refund it in the provider's panel.`, error);
+        });
+      }
 
       if (settlement === null) return { ok: false, reason: "payment-failed" };
       if (settlement.outcome !== "paid") return { ok: false, reason: settlement.outcome };

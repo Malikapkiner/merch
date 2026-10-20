@@ -100,7 +100,9 @@ export type Order = {
 
 export type ConfirmPaymentResult =
   | { ok: true; order: Order }
-  /** The payment is declined, still pending, or the token is unknown; Stok is untouched. */
+  /** The payment is declined or the token is unknown; Stok is untouched. */
   | { ok: false; reason: "payment-failed" }
+  /** The provider hasn't settled the payment yet (e.g. a fraud review); the Order stays Ödeme Bekliyor. */
+  | { ok: false; reason: "payment-pending" }
   /** Paid, but a Variant sold out first; the payment is cancelled and the Order is İptal. */
   | { ok: false; reason: "out-of-stock" };

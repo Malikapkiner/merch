@@ -4,13 +4,33 @@ import { randomUUID } from "node:crypto";
 // Customer is sent to `redirectUrl`, comes back to `callbackUrl` with the
 // token, and the server asks the provider for the verified result.
 
+export type PaymentAddress = {
+  contactName: string;
+  /** The il. */
+  city: string;
+  /** The full address on one line, ilçe and il included. */
+  address: string;
+};
+
 export type PaymentRequest = {
   orderNumber: string;
-  /** Amount to charge in kuruş, KDV and shipping included. */
+  /** Amount to charge in kuruş, KDV and shipping included: the line totals plus `shippingFeeKurus`. */
   amountKurus: number;
+  shippingFeeKurus: number;
   /** Where the provider sends the Customer back, with the payment token. */
   callbackUrl: string;
-  customer: { name: string; email: string; phone: string };
+  customer: {
+    name: string;
+    email: string;
+    /** E.164. */
+    phone: string;
+    /** The Customer's TCKN when they gave one; null otherwise. */
+    identityNumber: string | null;
+    /** The Customer's IP address at checkout, when known. */
+    ip: string | null;
+  };
+  shippingAddress: PaymentAddress;
+  billingAddress: PaymentAddress;
   lines: { name: string; unitPriceKurus: number; quantity: number }[];
 };
 
@@ -23,7 +43,7 @@ export type PaymentSession = {
 
 export type PaymentResult =
   | { status: "succeeded"; paymentId: string; orderNumber: string; amountKurus: number }
-  /** The Customer hasn't finished on the provider's page yet; nothing is settled. */
+  /** Not settled yet: the Customer hasn't finished on the provider's page, or the provider is reviewing it. */
   | { status: "pending" }
   | { status: "failed" };
 
@@ -51,6 +71,8 @@ export type FakePaymentProvider = PaymentProvider & {
   approve(token: string, overrides?: { amountKurus?: number }): void;
   decline(token: string): void;
   cancelledPaymentIds(): string[];
+  /** Makes every later cancelPayment fail, like a provider refusing a void. */
+  refuseCancellations(): void;
 };
 
 /** `checkoutPagePath` is the app page standing in for the provider's hosted form. */
@@ -60,6 +82,7 @@ export function createFakePaymentProvider(
   const checkoutPagePath = options.checkoutPagePath ?? "/fake-payment";
   const sessions = new Map<string, FakeSession>();
   const cancelled: string[] = [];
+  let refusingCancellations = false;
 
   function settle(token: string, outcome: FakeSession["outcome"]): FakeSession {
     const session = sessions.get(token);
@@ -91,6 +114,7 @@ export function createFakePaymentProvider(
       };
     },
     async cancelPayment(paymentId) {
+      if (refusingCancellations) throw new Error("Fake provider refused the cancellation");
       cancelled.push(paymentId);
     },
     session(token) {
@@ -105,6 +129,9 @@ export function createFakePaymentProvider(
     },
     cancelledPaymentIds() {
       return cancelled;
+    },
+    refuseCancellations() {
+      refusingCancellations = true;
     },
   };
 }

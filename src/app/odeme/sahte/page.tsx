@@ -24,7 +24,7 @@ export default async function FakePaymentPage({ searchParams }: Props) {
       <p className="lead">
         Sipariş {session.orderNumber}: <strong>{formatPrice(session.amountKurus)}</strong>
       </p>
-      <p className="muted">Bu sayfa gerçek bir ödeme almaz; kart ödemesi iyzico ile gelecek.</p>
+      <p className="muted">Bu sayfa gerçek bir ödeme almaz; canlı mağazada kart ödemesi iyzico ile alınır.</p>
       {/* A native post, so the browser fully navigates back like it would from a real provider. */}
       <form action="/odeme/sahte/tamamla" method="post" className="buy-box__actions">
         <input type="hidden" name="token" value={token} />

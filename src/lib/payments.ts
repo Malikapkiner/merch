@@ -1,4 +1,4 @@
-import { createFakePaymentProvider } from "@/modules/payment";
+import { createFakePaymentProvider, createIyzicoPaymentProviderFromEnv } from "@/modules/payment";
 import type { FakePaymentProvider, PaymentProvider } from "@/modules/payment";
 
 // Kept on globalThis so dev-server reloads don't forget payments in flight.
@@ -15,8 +15,17 @@ export function fakePaymentProvider(): FakePaymentProvider | undefined {
   return fakePaymentsGlobal.fakePayments;
 }
 
-/** The payment provider bound to the app configuration; the iyzico adapter joins in ticket 09. */
+/**
+ * The payment provider bound to the app configuration: iyzico once every
+ * IYZICO_ variable is set, unless PAYMENT_PROVIDER=fake asks for the fake;
+ * otherwise the fake where it is allowed. A partial iyzico configuration
+ * throws instead of quietly falling back to fake payments.
+ */
 export function paymentProvider(): PaymentProvider {
+  if (process.env.PAYMENT_PROVIDER !== "fake") {
+    const iyzico = createIyzicoPaymentProviderFromEnv(process.env);
+    if (iyzico) return iyzico;
+  }
   const fake = fakePaymentProvider();
   if (!fake) throw new Error("No payment provider is configured");
   return fake;

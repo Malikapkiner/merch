@@ -33,6 +33,12 @@ async function callbackUrl(): Promise<string> {
   return `${protocol}://${host}/odeme/sonuc`;
 }
 
+/** The Customer's IP as the reverse proxy reports it; the payment provider uses it for fraud checks. */
+async function customerIp(): Promise<string | null> {
+  const headerList = await headers();
+  return headerList.get("x-forwarded-for")?.split(",")[0].trim() || headerList.get("x-real-ip") || null;
+}
+
 export async function placeOrderAction(_state: CheckoutState, formData: FormData): Promise<CheckoutState> {
   const shippingAddress = {
     fullName: textField(formData, "fullName"),
@@ -67,7 +73,7 @@ export async function placeOrderAction(_state: CheckoutState, formData: FormData
       },
       acceptedContracts: formData.get("acceptedContracts") !== null,
     },
-    { callbackUrl: await callbackUrl() },
+    { callbackUrl: await callbackUrl(), customerIp: await customerIp() },
   );
 
   if (result.ok) redirect(result.paymentUrl);
