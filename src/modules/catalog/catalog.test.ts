@@ -180,6 +180,7 @@ describe("Catalog", () => {
         productSlug: "erken-hasat",
         productName: "Erken Hasat",
         priceKurus: 34950,
+        vatRatePercent: 10,
         stock: 4,
       },
     ]);

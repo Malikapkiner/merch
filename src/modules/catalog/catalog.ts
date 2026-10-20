@@ -1,6 +1,6 @@
-import { and, asc, eq, inArray, min } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, min, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { Database } from "@/db/client";
+import type { Database, Transaction } from "@/db/client";
 import type { MediaStorage } from "../media";
 import { categories, productImages, products, variants } from "./schema";
 
@@ -60,6 +60,7 @@ export type VariantWithProduct = {
   productName: string;
   /** Price in kuruş, KDV included. */
   priceKurus: number;
+  vatRatePercent: number;
   stock: number;
 };
 
@@ -115,6 +116,35 @@ function sniffImageType(bytes: Uint8Array): ImageType | null {
   if (startsWithJpeg) return { contentType: "image/jpeg", extension: "jpg" };
   if (startsWithWebp) return { contentType: "image/webp", extension: "webp" };
   return null;
+}
+
+/** Thrown by `decrementStock` when a Variant has fewer units than requested. */
+export class InsufficientStockError extends Error {
+  constructor(readonly variantId: number) {
+    super(`Insufficient stock for variant ${variantId}`);
+  }
+}
+
+/**
+ * Takes sold units off Stok inside the caller's transaction. Each Variant is
+ * decremented only while it still has enough units, so concurrent buyers of
+ * the last unit can't both succeed; on a shortfall it throws
+ * `InsufficientStockError` and the caller rolls the transaction back.
+ */
+export async function decrementStock(
+  tx: Transaction,
+  lines: ReadonlyArray<{ variantId: number; quantity: number }>,
+): Promise<void> {
+  // A fixed lock order keeps two multi-line Orders from deadlocking each other.
+  const ordered = [...lines].sort((a, b) => a.variantId - b.variantId);
+  for (const line of ordered) {
+    const updated = await tx
+      .update(variants)
+      .set({ stock: sql`${variants.stock} - ${line.quantity}` })
+      .where(and(eq(variants.id, line.variantId), gte(variants.stock, line.quantity)))
+      .returning({ id: variants.id });
+    if (updated.length === 0) throw new InsufficientStockError(line.variantId);
+  }
 }
 
 type JoinedCategory = { id: number | null; slug: string | null; name: string | null } | null;
@@ -319,6 +349,7 @@ export function createCatalog(db: Database, options: CatalogOptions = {}) {
           productSlug: products.slug,
           productName: products.name,
           priceKurus: variants.priceKurus,
+          vatRatePercent: variants.vatRatePercent,
           stock: variants.stock,
         })
         .from(variants)

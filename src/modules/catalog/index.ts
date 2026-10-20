@@ -1,5 +1,11 @@
 // Public interface of the Catalog module. Import only from here.
-export { MAX_PRODUCT_IMAGE_BYTES, createCatalog, ProductImageError } from "./catalog";
+export {
+  MAX_PRODUCT_IMAGE_BYTES,
+  createCatalog,
+  decrementStock,
+  InsufficientStockError,
+  ProductImageError,
+} from "./catalog";
 export type {
   AdminProduct,
   AdminVariant,

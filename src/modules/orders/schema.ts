@@ -1,0 +1,61 @@
+import { integer, jsonb, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import type { Address, BillingInfo, CancellationReason, OrderStatus } from "./types";
+
+export const orderStatus = pgEnum("order_status", [
+  "awaiting_payment",
+  "paid",
+  "preparing",
+  "shipped",
+  "delivered",
+  "cancelled",
+  "returned",
+] as const satisfies readonly OrderStatus[]);
+
+/**
+ * An Order with a snapshot of everything the Customer agreed to: addresses,
+ * billing info, totals and the accepted legal document versions. Later edits
+ * to Products, prices or documents never change a placed Order.
+ */
+export const orders = pgTable("orders", {
+  id: serial("id").primaryKey(),
+  /** Human-facing Sipariş numarası, shown to the Customer and the Admin. */
+  orderNumber: text("order_number").notNull().unique(),
+  /** Unguessable token in the confirmation page link. */
+  accessToken: text("access_token").notNull().unique(),
+  status: orderStatus("status").notNull().default("awaiting_payment"),
+  email: text("email").notNull(),
+  /** E.164, e.g. +905321234567. */
+  phone: text("phone").notNull(),
+  shippingAddress: jsonb("shipping_address").$type<Address>().notNull(),
+  billing: jsonb("billing").$type<BillingInfo>().notNull(),
+  /** Legal document slug -> version accepted at checkout. */
+  acceptedDocuments: jsonb("accepted_documents").$type<Record<string, string>>().notNull(),
+  subtotalKurus: integer("subtotal_kurus").notNull(),
+  shippingFeeKurus: integer("shipping_fee_kurus").notNull(),
+  totalKurus: integer("total_kurus").notNull(),
+  /** The payment provider's token for this Order's payment attempt. */
+  paymentToken: text("payment_token").unique(),
+  /** The provider's id of the captured payment, set once paid. */
+  paymentId: text("payment_id"),
+  cancellationReason: text("cancellation_reason").$type<CancellationReason>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  paidAt: timestamp("paid_at"),
+});
+
+/** Order lines copy the Product/Variant names, price and KDV rate at purchase time. */
+export const orderLines = pgTable("order_lines", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id")
+    .notNull()
+    .references(() => orders.id, { onDelete: "cascade" }),
+  /** Not a foreign key: the line must outlive Catalog changes. */
+  variantId: integer("variant_id").notNull(),
+  productName: text("product_name").notNull(),
+  variantName: text("variant_name").notNull(),
+  /** Unit price in kuruş, KDV included. */
+  unitPriceKurus: integer("unit_price_kurus").notNull(),
+  vatRatePercent: integer("vat_rate_percent").notNull(),
+  quantity: integer("quantity").notNull(),
+  lineTotalKurus: integer("line_total_kurus").notNull(),
+  position: integer("position").notNull(),
+});

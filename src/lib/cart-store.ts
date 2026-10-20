@@ -85,3 +85,8 @@ export function changeCartQuantity(variantId: number, quantity: number): void {
 export function removeCartVariant(variantId: number): void {
   commit(removeFromCart(getSnapshot(), variantId));
 }
+
+/** Empties the cart once its Order is paid. */
+export function clearCart(): void {
+  commit(EMPTY);
+}

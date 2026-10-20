@@ -1,42 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { changeCartQuantity, removeCartVariant, useCart } from "@/lib/cart-store";
+import { changeCartQuantity, removeCartVariant } from "@/lib/cart-store";
 import { formatPrice } from "@/lib/format-price";
 import { parseQuantityInput } from "@/lib/quantity-input";
-import { priceCart, type CartVariant } from "@/modules/cart";
-import type { ShippingSettings } from "@/modules/shipping";
-
-type CartData = { key: string; variants: CartVariant[]; settings: ShippingSettings };
+import { usePricedCart } from "@/lib/use-priced-cart";
 
 export function CartView() {
-  const items = useCart();
-  const idsKey = items.map((item) => item.variantId).join(",");
-  const [data, setData] = useState<CartData | null>(null);
-  const [failed, setFailed] = useState(false);
+  const cart = usePricedCart();
 
-  // Refetches only when the set of Variants changes; quantities are repriced locally.
-  useEffect(() => {
-    if (idsKey === "") return;
-    let active = true;
-    fetch(`/api/cart?variantIds=${idsKey}`)
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("cart fetch failed"))))
-      .then((payload: { variants: CartVariant[]; settings: ShippingSettings }) => {
-        if (active) {
-          setData({ key: idsKey, ...payload });
-          setFailed(false);
-        }
-      })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [idsKey]);
-
-  if (items.length === 0) {
+  if (cart.state === "empty") {
     return (
       <p>
         Sepetiniz boş. <Link className="link-button" href="/urunler">Ürünlere göz atın</Link>.
@@ -44,7 +17,7 @@ export function CartView() {
     );
   }
 
-  if (failed) {
+  if (cart.state === "failed") {
     return (
       <p className="form-error" role="alert">
         Sepet yüklenemedi. Lütfen sayfayı yenileyin.
@@ -52,11 +25,8 @@ export function CartView() {
     );
   }
 
-  // A stale response for a previous cart is ignored until the current one arrives.
-  const totals = data && data.key === idsKey ? priceCart(items, data.variants, data.settings) : null;
-  if (!totals) return <p>Sepet yükleniyor…</p>;
-
-  const unavailable = items.length - totals.lines.length;
+  if (cart.state === "loading") return <p>Sepet yükleniyor…</p>;
+  const { totals, unavailable } = cart;
 
   return (
     <div className="cart">
@@ -123,7 +93,12 @@ export function CartView() {
       )}
 
       <p className="cart-continue">
-        <Link className="button" href="/urunler">
+        {totals.lines.length > 0 && !totals.exceedsStock && (
+          <Link className="button" href="/odeme">
+            Ödemeye geç
+          </Link>
+        )}{" "}
+        <Link className="link-button" href="/urunler">
           Alışverişe devam et
         </Link>
       </p>

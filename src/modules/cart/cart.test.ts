@@ -10,6 +10,7 @@ function variant(overrides: Partial<CartVariant> & { id: number }): CartVariant 
     productSlug: "erken-hasat-zeytinyagi",
     productName: "Erken Hasat Zeytinyağı",
     priceKurus: 34950,
+    vatRatePercent: 1,
     stock: 10,
     ...overrides,
   };
