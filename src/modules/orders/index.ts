@@ -2,7 +2,7 @@
 export { createOrderEmails } from "./emails";
 export type { OrderEmails, OrderEmailsOptions } from "./emails";
 export { createOrders } from "./orders";
-export { OrderStatusError } from "./transitions";
+export { MissingTrackingNumberError, nextStatuses, OrderStatusError } from "./transitions";
 export type { Orders, OrdersOptions } from "./orders";
 export type {
   Address,
@@ -14,5 +14,6 @@ export type {
   Order,
   OrderLine,
   OrderStatus,
+  OrderSummary,
   PlaceOrderResult,
 } from "./types";

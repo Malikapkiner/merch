@@ -8,6 +8,7 @@ export default function AdminPanelLayout({ children }: { children: ReactNode }) 
       <header className="admin-header">
         <nav className="admin-nav" aria-label="Yönetim">
           <Link href="/admin">Ürünler</Link>
+          <Link href="/admin/siparisler">Siparişler</Link>
           <Link href="/admin/kategoriler">Kategoriler</Link>
           <Link href="/admin/kargo">Kargo</Link>
         </nav>

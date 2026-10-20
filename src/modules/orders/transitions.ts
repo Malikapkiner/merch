@@ -29,6 +29,18 @@ export class OrderStatusError extends Error {
   }
 }
 
+/** The Sipariş Durumu values an Order can move to from `from`. */
+export function nextStatuses(from: OrderStatus): readonly OrderStatus[] {
+  return NEXT_STATUSES[from];
+}
+
+/** Thrown when an Order is moved to Kargoda without a tracking number. */
+export class MissingTrackingNumberError extends Error {
+  constructor() {
+    super("A tracking number is required to ship an Order");
+  }
+}
+
 export function assertTransition(from: OrderStatus, to: OrderStatus): void {
   if (!canTransition(from, to)) throw new OrderStatusError(from, to);
 }

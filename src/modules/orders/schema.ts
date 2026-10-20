@@ -38,6 +38,10 @@ export const orders = pgTable("orders", {
   /** The provider's id of the captured payment, set once paid. */
   paymentId: text("payment_id"),
   cancellationReason: text("cancellation_reason").$type<CancellationReason>(),
+  /** Kargo takip numarası the Admin entered when the Order went Kargoda. */
+  trackingNumber: text("tracking_number"),
+  /** The Admin's note on an İptal or İade, e.g. that the refund was made in the provider's panel. */
+  adminNote: text("admin_note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   paidAt: timestamp("paid_at"),
 });

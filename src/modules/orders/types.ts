@@ -80,6 +80,16 @@ export type OrderLine = {
   lineTotalKurus: number;
 };
 
+/** One row of the Admin's Order list. */
+export type OrderSummary = {
+  orderNumber: string;
+  status: OrderStatus;
+  customerName: string;
+  email: string;
+  totalKurus: number;
+  createdAt: Date;
+};
+
 export type Order = {
   orderNumber: string;
   accessToken: string;
@@ -94,6 +104,9 @@ export type Order = {
   totalKurus: number;
   acceptedDocuments: Record<string, string>;
   cancellationReason: CancellationReason | null;
+  trackingNumber: string | null;
+  /** The Admin's note on an İptal or İade; internal, never shown to the Customer. */
+  adminNote: string | null;
   createdAt: Date;
   paidAt: Date | null;
 };

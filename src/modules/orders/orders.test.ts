@@ -7,7 +7,7 @@ import { createFakeEmailSender } from "../notifications";
 import type { FakeEmailSender } from "../notifications";
 import { createShipping } from "../shipping";
 import type { CheckoutInput } from "./index";
-import { createOrderEmails, createOrders, OrderStatusError } from "./index";
+import { createOrderEmails, createOrders, MissingTrackingNumberError, OrderStatusError } from "./index";
 
 const testDb = openTestDatabase();
 const catalog = createCatalog(testDb.db);
@@ -411,9 +411,39 @@ describe("Sipariş Durumu transitions", () => {
     const orderNumber = await paidOrder();
 
     for (const status of ["preparing", "shipped", "delivered", "returned"] as const) {
-      await orders.changeStatus(orderNumber, status);
+      await orders.changeStatus(orderNumber, status, { trackingNumber: "YK1234567890" });
       expect((await orders.getOrder(orderNumber))?.status).toBe(status);
     }
+  });
+
+  it("needs a tracking number to move to Kargoda, keeps it on the Order and tells the Customer", async () => {
+    const orderNumber = await paidOrder();
+    await orders.changeStatus(orderNumber, "preparing");
+
+    await expect(orders.changeStatus(orderNumber, "shipped")).rejects.toThrow(MissingTrackingNumberError);
+    await expect(orders.changeStatus(orderNumber, "shipped", { trackingNumber: "   " })).rejects.toThrow(
+      MissingTrackingNumberError,
+    );
+    expect((await orders.getOrder(orderNumber))?.status).toBe("preparing");
+    const sentBefore = mail.sent().length;
+
+    await orders.changeStatus(orderNumber, "shipped", { trackingNumber: " YK1234567890 " });
+
+    expect(await orders.getOrder(orderNumber)).toMatchObject({ status: "shipped", trackingNumber: "YK1234567890" });
+    expect(mail.sent()).toHaveLength(sentBefore + 1);
+    expect(mail.sent().at(-1)).toMatchObject({ to: "ayse@example.com" });
+    expect(mail.sent().at(-1)!.text).toContain("YK1234567890");
+  });
+
+  it("sends no shipping notice when the move to Kargoda is rejected", async () => {
+    const orderNumber = await paidOrder();
+    const sentBefore = mail.sent().length;
+
+    await expect(orders.changeStatus(orderNumber, "shipped", { trackingNumber: "YK1" })).rejects.toThrow(
+      OrderStatusError,
+    );
+
+    expect(mail.sent()).toHaveLength(sentBefore);
   });
 
   it("rejects skipping a step", async () => {
@@ -431,6 +461,34 @@ describe("Sipariş Durumu transitions", () => {
     await expect(orders.changeStatus(orderNumber, "preparing")).rejects.toThrow(OrderStatusError);
   });
 
+  it("keeps the Admin's note on an İptal or İade", async () => {
+    const cancelled = await paidOrder();
+    await orders.changeStatus(cancelled, "cancelled", { note: " Müşteri istedi; iyzico panelinden iade edildi. " });
+    const returned = await paidOrder();
+    for (const status of ["preparing", "shipped", "returned"] as const) {
+      await orders.changeStatus(returned, status, { trackingNumber: "YK1", note: "Ürün hasarlı döndü." });
+    }
+
+    expect(await orders.getOrder(cancelled)).toMatchObject({
+      status: "cancelled",
+      adminNote: "Müşteri istedi; iyzico panelinden iade edildi.",
+    });
+    expect(await orders.getOrder(returned)).toMatchObject({ status: "returned", adminNote: "Ürün hasarlı döndü." });
+  });
+
+  it("lets the Admin cancel an Order before it ships but not after", async () => {
+    const early = await paidOrder();
+    await orders.changeStatus(early, "preparing");
+    await orders.changeStatus(early, "cancelled", { note: "Stok bulunamadı." });
+    const late = await paidOrder();
+    await orders.changeStatus(late, "preparing");
+    await orders.changeStatus(late, "shipped", { trackingNumber: "YK1" });
+
+    await expect(orders.changeStatus(late, "cancelled")).rejects.toThrow(OrderStatusError);
+    expect((await orders.getOrder(early))?.status).toBe("cancelled");
+    expect((await orders.getOrder(late))?.status).toBe("shipped");
+  });
+
   it("only lets a confirmed payment make an Order Ödendi", async () => {
     const oil = await variantWith({ priceKurus: 34950, stock: 5 });
     const { orderNumber } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
@@ -438,6 +496,42 @@ describe("Sipariş Durumu transitions", () => {
     await expect(orders.changeStatus(orderNumber, "paid")).rejects.toThrow(OrderStatusError);
     expect((await orders.getOrder(orderNumber))?.status).toBe("awaiting_payment");
     expect(await stockOf(oil.id)).toBe(5);
+  });
+});
+
+describe("Listing Orders for the Admin", () => {
+  async function orderWithStatus(status: "awaiting_payment" | "paid" | "preparing") {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    if (status === "awaiting_payment") return orderNumber;
+    payments.approve(token);
+    await orders.confirmPayment(token);
+    if (status === "preparing") await orders.changeStatus(orderNumber, "preparing");
+    return orderNumber;
+  }
+
+  it("lists Orders newest first and can filter by Sipariş Durumu", async () => {
+    const waiting = await orderWithStatus("awaiting_payment");
+    const paid = await orderWithStatus("paid");
+    const preparing = await orderWithStatus("preparing");
+
+    expect((await orders.listOrders()).map((order) => order.orderNumber)).toEqual([preparing, paid, waiting]);
+    expect((await orders.listOrders({ status: "paid" })).map((order) => order.orderNumber)).toEqual([paid]);
+    expect(await orders.listOrders({ status: "delivered" })).toEqual([]);
+  });
+
+  it("summarises each Order with its Customer and total", async () => {
+    const orderNumber = await orderWithStatus("paid");
+
+    const [summary] = await orders.listOrders();
+
+    expect(summary).toMatchObject({
+      orderNumber,
+      status: "paid",
+      customerName: "Ayşe Yılmaz",
+      email: "ayse@example.com",
+      totalKurus: 34950 + 6000,
+    });
   });
 });
 

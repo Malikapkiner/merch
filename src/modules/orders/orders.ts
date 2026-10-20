@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { randomBytes, randomInt } from "node:crypto";
 import type { Database, Transaction } from "@/db/client";
 import { addToCart, priceCart } from "../cart";
@@ -9,7 +9,7 @@ import type { PaymentAddress, PaymentProvider } from "../payment";
 import { createShipping } from "../shipping";
 import type { OrderEmails } from "./emails";
 import { orderLines, orders } from "./schema";
-import { assertTransition, OrderStatusError } from "./transitions";
+import { assertTransition, MissingTrackingNumberError, OrderStatusError } from "./transitions";
 import type {
   Address,
   CancellationReason,
@@ -17,6 +17,7 @@ import type {
   ConfirmPaymentResult,
   Order,
   OrderStatus,
+  OrderSummary,
   PlaceOrderResult,
 } from "./types";
 import { validateCheckoutDetails } from "./validation";
@@ -79,7 +80,7 @@ async function moveStatus(
   tx: Transaction,
   order: OrderRow,
   to: OrderStatus,
-  changes: Partial<Pick<OrderRow, "paymentId" | "paidAt" | "cancellationReason">> = {},
+  changes: Partial<Pick<OrderRow, "paymentId" | "paidAt" | "cancellationReason" | "trackingNumber" | "adminNote">> = {},
 ): Promise<void> {
   assertTransition(order.status, to);
   await tx.update(orders).set({ ...changes, status: to }).where(eq(orders.id, order.id));
@@ -125,6 +126,8 @@ export function createOrders(db: Database, options: OrdersOptions) {
       totalKurus: row.totalKurus,
       acceptedDocuments: row.acceptedDocuments,
       cancellationReason: row.cancellationReason,
+      trackingNumber: row.trackingNumber,
+      adminNote: row.adminNote,
       createdAt: row.createdAt,
       paidAt: row.paidAt,
     };
@@ -288,14 +291,49 @@ export function createOrders(db: Database, options: OrdersOptions) {
      * Moves an Order to its next Sipariş Durumu, rejecting skipped steps and
      * moves out of İptal or İade with `OrderStatusError`. Ödendi is never set
      * here: only a confirmed payment, which also takes Stok, makes an Order paid.
+     * Kargoda needs a tracking number (`MissingTrackingNumberError` otherwise)
+     * and sends the Customer the shipping notice; İptal and İade keep the
+     * Admin's note. The refund itself is made in the provider's panel.
      */
-    async changeStatus(orderNumber: string, to: OrderStatus): Promise<void> {
+    async changeStatus(
+      orderNumber: string,
+      to: OrderStatus,
+      details: { trackingNumber?: string; note?: string } = {},
+    ): Promise<void> {
+      const trackingNumber = details.trackingNumber?.trim() || null;
+      const note = details.note?.trim() || null;
       await db.transaction(async (tx) => {
         const [order] = await tx.select().from(orders).where(eq(orders.orderNumber, orderNumber)).for("update");
         if (!order) throw new Error("Order not found");
         if (to === "paid") throw new OrderStatusError(order.status, to);
-        await moveStatus(tx, order, to);
+        assertTransition(order.status, to);
+        if (to === "shipped" && !trackingNumber) throw new MissingTrackingNumberError();
+        await moveStatus(tx, order, to, {
+          ...(to === "shipped" && { trackingNumber }),
+          ...((to === "cancelled" || to === "returned") && { adminNote: note }),
+        });
       });
+      // After the commit: the move is settled, and a failed e-mail never undoes it.
+      if (to === "shipped") {
+        await emails.orderShipped((await loadOrder(eq(orders.orderNumber, orderNumber))) as Order, trackingNumber as string);
+      }
+    },
+
+    /** Orders newest first, optionally only those in one Sipariş Durumu. */
+    async listOrders(filter: { status?: OrderStatus } = {}): Promise<OrderSummary[]> {
+      const rows = await db
+        .select()
+        .from(orders)
+        .where(filter.status ? eq(orders.status, filter.status) : undefined)
+        .orderBy(desc(orders.createdAt), desc(orders.id));
+      return rows.map((row) => ({
+        orderNumber: row.orderNumber,
+        status: row.status,
+        customerName: row.shippingAddress.fullName,
+        email: row.email,
+        totalKurus: row.totalKurus,
+        createdAt: row.createdAt,
+      }));
     },
 
     async getOrder(orderNumber: string): Promise<Order | null> {

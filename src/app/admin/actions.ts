@@ -6,8 +6,11 @@ import { redirect } from "next/navigation";
 import { getAccounts } from "@/lib/accounts";
 import { ADMIN_SESSION_COOKIE, requireAdmin } from "@/lib/admin-session";
 import { getCatalog } from "@/lib/catalog";
+import { getOrders } from "@/lib/orders";
+import { isOrderStatus } from "@/lib/order-status";
 import { getShipping } from "@/lib/shipping";
 import { MAX_PRODUCT_IMAGE_BYTES, ProductImageError } from "@/modules/catalog";
+import { MissingTrackingNumberError, OrderStatusError } from "@/modules/orders";
 import { mediaStorage } from "@/lib/media";
 import { parsePriceInput } from "@/lib/price-input";
 
@@ -254,5 +257,25 @@ export async function deleteProductImageAction(formData: FormData): Promise<void
     fail(back, "Görsel silinemedi.");
   }
   revalidatePath("/urunler");
+  redirect(`${back}?durum=kaydedildi`);
+}
+
+export async function changeOrderStatusAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const orderNumber = textField(formData, "orderNumber");
+  const status = textField(formData, "status");
+  const back = `/admin/siparisler/${encodeURIComponent(orderNumber)}`;
+  if (!isOrderStatus(status)) fail(back, "Geçersiz sipariş durumu.");
+
+  try {
+    await getOrders().changeStatus(orderNumber, status, {
+      trackingNumber: textField(formData, "trackingNumber"),
+      note: textField(formData, "note"),
+    });
+  } catch (error) {
+    if (error instanceof MissingTrackingNumberError) fail(back, "Kargoya vermek için takip numarası zorunludur.");
+    if (error instanceof OrderStatusError) fail(back, "Bu durum geçişi yapılamaz.");
+    throw error;
+  }
   redirect(`${back}?durum=kaydedildi`);
 }
