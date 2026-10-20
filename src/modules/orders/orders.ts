@@ -7,6 +7,7 @@ import { createCatalog, decrementStock, InsufficientStockError } from "../catalo
 import { getCurrentVersion } from "../legal";
 import type { PaymentAddress, PaymentProvider } from "../payment";
 import { createShipping } from "../shipping";
+import type { OrderEmails } from "./emails";
 import { orderLines, orders } from "./schema";
 import { assertTransition, OrderStatusError } from "./transitions";
 import type {
@@ -20,7 +21,7 @@ import type {
 } from "./types";
 import { validateCheckoutDetails } from "./validation";
 
-export type OrdersOptions = { payments: PaymentProvider };
+export type OrdersOptions = { payments: PaymentProvider; emails: OrderEmails };
 
 /** The documents the Customer accepts at checkout; their versions are stored on the Order. */
 const ACCEPTED_DOCUMENT_SLUGS = ["mesafeli-satis-sozlesmesi", "on-bilgilendirme-formu"] as const;
@@ -63,6 +64,8 @@ type Settlement = {
   outcome: "paid" | CancellationReason;
   /** A captured payment the Customer must get back because the Order could not be fulfilled. */
   paymentIdToCancel?: string;
+  /** This confirmation made the Order Ödendi; a repeated one reports "paid" without it. */
+  justPaid?: boolean;
 };
 
 /** The outcome an already settled Order reports again on a repeated confirmation. */
@@ -88,7 +91,7 @@ async function moveStatus(
  * Sipariş Durumu transitions.
  */
 export function createOrders(db: Database, options: OrdersOptions) {
-  const { payments } = options;
+  const { payments, emails } = options;
   const catalog = createCatalog(db);
   const shipping = createShipping(db);
 
@@ -261,7 +264,7 @@ export function createOrders(db: Database, options: OrdersOptions) {
           return { orderId: order.id, outcome: "out-of-stock", paymentIdToCancel: result.paymentId };
         }
         await moveStatus(tx, order, "paid", { paymentId: result.paymentId, paidAt: new Date() });
-        return { orderId: order.id, outcome: "paid" };
+        return { orderId: order.id, outcome: "paid", justPaid: true };
       });
 
       // Only the confirmation that cancelled the Order gets here with a payment to give back.
@@ -275,7 +278,10 @@ export function createOrders(db: Database, options: OrdersOptions) {
 
       if (settlement === null) return { ok: false, reason: "payment-failed" };
       if (settlement.outcome !== "paid") return { ok: false, reason: settlement.outcome };
-      return { ok: true, order: (await loadOrder(eq(orders.id, settlement.orderId))) as Order };
+      const order = (await loadOrder(eq(orders.id, settlement.orderId))) as Order;
+      // Only the confirmation that made the Order Ödendi sends the Sipariş onayı, so a retry never sends it twice.
+      if (settlement.justPaid) await emails.orderConfirmed(order);
+      return { ok: true, order };
     },
 
     /**

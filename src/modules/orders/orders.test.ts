@@ -3,14 +3,17 @@ import { openTestDatabase } from "../../../tests/database";
 import { createCatalog } from "../catalog";
 import { createFakePaymentProvider } from "../payment";
 import type { FakePaymentProvider } from "../payment";
+import { createFakeEmailSender } from "../notifications";
+import type { FakeEmailSender } from "../notifications";
 import { createShipping } from "../shipping";
 import type { CheckoutInput } from "./index";
-import { createOrders, OrderStatusError } from "./index";
+import { createOrderEmails, createOrders, OrderStatusError } from "./index";
 
 const testDb = openTestDatabase();
 const catalog = createCatalog(testDb.db);
 const shipping = createShipping(testDb.db);
 let payments: FakePaymentProvider;
+let mail: FakeEmailSender;
 let orders: ReturnType<typeof createOrders>;
 
 const CALLBACK_URL = "https://magaza.test/odeme/sonuc";
@@ -18,7 +21,8 @@ const CALLBACK_URL = "https://magaza.test/odeme/sonuc";
 beforeEach(async () => {
   await testDb.truncateAll();
   payments = createFakePaymentProvider();
-  orders = createOrders(testDb.db, { payments });
+  mail = createFakeEmailSender();
+  orders = createOrders(testDb.db, { payments, emails: createOrderEmails({ sender: mail, brandName: "Zeytin Evi" }) });
 });
 afterAll(() => testDb.close());
 
@@ -434,5 +438,128 @@ describe("Sipariş Durumu transitions", () => {
     await expect(orders.changeStatus(orderNumber, "paid")).rejects.toThrow(OrderStatusError);
     expect((await orders.getOrder(orderNumber))?.status).toBe("awaiting_payment");
     expect(await stockOf(oil.id)).toBe(5);
+  });
+});
+
+describe("Order e-mails", () => {
+  it("sends the Customer a Turkish confirmation with the Order number, lines, total and address once paid", async () => {
+    await shipping.setSettings({ shippingFeeKurus: 6000, freeShippingThresholdKurus: 100000 });
+    const oil = await variantWith({ priceKurus: 34950, stock: 5, name: "500 ml" });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 2 }] }));
+    expect(mail.sent()).toEqual([]);
+    payments.approve(token);
+
+    await orders.confirmPayment(token);
+
+    expect(mail.sent()).toHaveLength(1);
+    const [email] = mail.sent();
+    expect(email.to).toBe("ayse@example.com");
+    expect(email.subject).toBe(`Zeytin Evi: ${orderNumber} numaralı siparişiniz alındı`);
+    for (const body of [email.text, email.html]) {
+      expect(body).toContain(orderNumber);
+      expect(body).toContain("Erken Hasat Zeytinyağı 500 ml");
+      expect(body).toMatch(/2\s*×/);
+      expect(body).toContain("₺699,00");
+      expect(body).toContain("₺60,00");
+      expect(body).toContain("₺759,00");
+      expect(body).toContain("Zeytinalanı Mah. Zeytin Sk. No: 3");
+      expect(body).toContain("Urla / İzmir");
+      expect(body).toContain("Zeytin Evi");
+    }
+  });
+
+  it("sends the confirmation once when the provider repeats the notification", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    payments.approve(token);
+
+    await orders.confirmPayment(token);
+    await orders.confirmPayment(token);
+
+    expect(mail.sent()).toHaveLength(1);
+  });
+
+  it("sends nothing for a declined payment or an Order that sold out before payment", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 1 });
+    const items = [{ variantId: oil.id, quantity: 1 }];
+    const declined = await placeOrder(checkout({ items }));
+    payments.decline(declined.token);
+    await orders.confirmPayment(declined.token);
+    const first = await placeOrder(checkout({ items }));
+    const late = await placeOrder(checkout({ items }));
+    payments.approve(first.token);
+    payments.approve(late.token);
+    await orders.confirmPayment(first.token);
+    expect(mail.sent()).toHaveLength(1);
+
+    expect(await orders.confirmPayment(late.token)).toEqual({ ok: false, reason: "out-of-stock" });
+
+    expect(mail.sent().map((email) => email.subject)).toEqual([
+      `Zeytin Evi: ${first.orderNumber} numaralı siparişiniz alındı`,
+    ]);
+  });
+
+  it("keeps the Order Ödendi and logs the error when the confirmation can't be sent", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    payments.approve(token);
+    mail.refuseSending();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await orders.confirmPayment(token);
+
+    expect(result).toMatchObject({ ok: true, order: { orderNumber, status: "paid" } });
+    expect(await stockOf(oil.id)).toBe(4);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(orderNumber), expect.any(Error));
+    logged.mockRestore();
+  });
+
+  it("sends the shipping notice with the tracking number", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5, name: "500 ml" });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    payments.approve(token);
+    await orders.confirmPayment(token);
+    const emails = createOrderEmails({ sender: mail, brandName: "Zeytin Evi" });
+
+    await emails.orderShipped((await orders.getOrder(orderNumber))!, "YK1234567890");
+
+    const shipped = mail.sent().at(-1)!;
+    expect(shipped.to).toBe("ayse@example.com");
+    expect(shipped.subject).toBe(`Zeytin Evi: ${orderNumber} numaralı siparişiniz kargoya verildi`);
+    for (const body of [shipped.text, shipped.html]) {
+      expect(body).toContain(orderNumber);
+      expect(body).toContain("YK1234567890");
+      expect(body).toContain("Erken Hasat Zeytinyağı 500 ml");
+      expect(body).toContain("Zeytin Evi");
+    }
+  });
+
+  it("logs a shipping notice that can't be sent instead of failing", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    payments.approve(token);
+    await orders.confirmPayment(token);
+    mail.refuseSending();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const emails = createOrderEmails({ sender: mail, brandName: "Zeytin Evi" });
+
+    await expect(emails.orderShipped((await orders.getOrder(orderNumber))!, "YK1234567890")).resolves.toBeUndefined();
+
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(orderNumber), expect.any(Error));
+    logged.mockRestore();
+  });
+
+  it("escapes what the Customer typed in the HTML body", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const shippingAddress = { ...checkout().shippingAddress, fullName: "Ayşe <b>Yılmaz</b>" };
+    const { token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }], shippingAddress }));
+    payments.approve(token);
+
+    await orders.confirmPayment(token);
+
+    const [email] = mail.sent();
+    expect(email.html).toContain("Ayşe &lt;b&gt;Yılmaz&lt;/b&gt;");
+    expect(email.html).not.toContain("<b>Yılmaz</b>");
+    expect(email.text).toContain("Ayşe <b>Yılmaz</b>");
   });
 });

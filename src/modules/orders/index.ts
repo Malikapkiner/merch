@@ -1,4 +1,6 @@
 // Public interface of the Orders module. Import only from here.
+export { createOrderEmails } from "./emails";
+export type { OrderEmails, OrderEmailsOptions } from "./emails";
 export { createOrders } from "./orders";
 export { OrderStatusError } from "./transitions";
 export type { Orders, OrdersOptions } from "./orders";
