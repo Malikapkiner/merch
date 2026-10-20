@@ -213,7 +213,9 @@ export function createOrders(db: Database, options: OrdersOptions) {
     /**
      * Confirms the payment behind a provider token, as the provider reports it
      * server-side. On success, Stok drops atomically and the Order becomes
-     * Ödendi in one transaction; a declined payment makes the Order İptal.
+     * Ödendi in one transaction. A declined attempt leaves the Order Ödeme
+     * Bekliyor, since the Customer may still pay with another card on the
+     * provider's page; a payment arriving for an İptal Order is given back.
      * Repeating a confirmation (e.g. a provider retry) returns the first
      * outcome and changes nothing.
      */
@@ -227,12 +229,19 @@ export function createOrders(db: Database, options: OrdersOptions) {
         // The row lock serialises confirmations of the same Order.
         const [order] = await tx.select().from(orders).where(eq(orders.paymentToken, token)).for("update");
         if (!order) return null;
-        if (order.status !== "awaiting_payment") return { orderId: order.id, outcome: settledOutcome(order) };
-
-        if (result.status !== "succeeded") {
-          await moveStatus(tx, order, "cancelled", { cancellationReason: PAYMENT_FAILED });
-          return { orderId: order.id, outcome: "payment-failed" };
+        if (order.status !== "awaiting_payment") {
+          // A payment captured after the Order was closed (e.g. cancelled while the Customer was still on the
+          // provider's page) is given back; recording its id makes a repeated notification skip the refund.
+          if (order.status === "cancelled" && result.status === "succeeded" && result.paymentId !== order.paymentId) {
+            await tx.update(orders).set({ paymentId: result.paymentId }).where(eq(orders.id, order.id));
+            return { orderId: order.id, outcome: settledOutcome(order), paymentIdToCancel: result.paymentId };
+          }
+          return { orderId: order.id, outcome: settledOutcome(order) };
         }
+
+        // A declined attempt isn't final: the provider's page lets the Customer try another card with the same
+        // token, so the Order stays open for a later successful payment.
+        if (result.status !== "succeeded") return { orderId: order.id, outcome: "payment-failed" };
         if (result.orderNumber !== order.orderNumber || result.amountKurus !== order.totalKurus) {
           // Charged, but not for this Order as placed: never fulfil it, give the money back.
           await moveStatus(tx, order, "cancelled", { cancellationReason: PAYMENT_FAILED, paymentId: result.paymentId });

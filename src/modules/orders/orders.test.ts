@@ -278,12 +278,39 @@ describe("Confirming a payment", () => {
 
     expect(result).toEqual({ ok: false, reason: "payment-failed" });
     expect(await stockOf(oil.id)).toBe(1);
-    expect((await orders.getOrder(declined.orderNumber))?.status).toBe("cancelled");
 
     const retry = await placeOrder(checkout({ items }));
     payments.approve(retry.token);
     expect(await orders.confirmPayment(retry.token)).toMatchObject({ ok: true, order: { status: "paid" } });
     expect(await stockOf(oil.id)).toBe(0);
+  });
+
+  it("keeps a declined Order open, so another card on the provider's page can still pay it", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    payments.decline(token);
+    await orders.confirmPayment(token);
+    expect((await orders.getOrder(orderNumber))?.status).toBe("awaiting_payment");
+
+    payments.approve(token);
+
+    expect(await orders.confirmPayment(token)).toMatchObject({ ok: true, order: { orderNumber, status: "paid" } });
+    expect(await stockOf(oil.id)).toBe(4);
+  });
+
+  it("gives back a payment that arrives for an Order already cancelled, once", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    await orders.changeStatus(orderNumber, "cancelled");
+    payments.approve(token);
+
+    const first = await orders.confirmPayment(token);
+    const again = await orders.confirmPayment(token);
+
+    expect(first).toEqual({ ok: false, reason: "payment-failed" });
+    expect(again).toEqual({ ok: false, reason: "payment-failed" });
+    expect(payments.cancelledPaymentIds()).toHaveLength(1);
+    expect(await stockOf(oil.id)).toBe(5);
   });
 
   it("keeps the Order open when the payment is still pending, so it can complete later", async () => {

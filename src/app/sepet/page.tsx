@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 /** Messages for a payment that didn't complete, keyed by the payment callback's `hata` value. */
 const PAYMENT_ERRORS: Record<string, string> = {
-  "odeme-basarisiz": "Ödeme tamamlanamadı ve kartınızdan çekim yapılmadı. Sepetiniz duruyor; yeniden deneyebilirsiniz.",
+  "odeme-basarisiz": "Ödeme tamamlanamadı. Sepetiniz duruyor; bilgilerinizi kontrol edip yeniden deneyebilirsiniz.",
   "stok-tukendi":
     "Siz ödeme yaparken sepetinizdeki bir ürün tükendi. Ödemeniz iptal edildi ve kartınızdan çekilmeyecek; lütfen sepetinizi kontrol edin.",
   "odeme-bekliyor":
