@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/admin-session";
 import { formatPrice } from "@/lib/format-price";
 import { getOrders } from "@/lib/orders";
-import { isOrderStatus, ORDER_STATUS_LABELS } from "@/lib/order-status";
+import { isOrderStatus, ORDER_STATUS_LABELS, REQUEST_KIND_LABELS } from "@/lib/order-status";
 import type { OrderStatus } from "@/modules/orders";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +18,25 @@ export default async function AdminOrdersPage({ searchParams }: Props) {
   await requireAdmin();
   const { durum } = await searchParams;
   const status = durum && isOrderStatus(durum) ? durum : undefined;
-  const orders = await getOrders().listOrders({ status });
+  const [orders, requests] = await Promise.all([getOrders().listOrders({ status }), getOrders().listOpenRequests()]);
 
   return (
     <div>
       <h1 className="heading-section">Siparişler</h1>
+
+      {requests.length > 0 && (
+        <section className="admin-card">
+          <h2>Bekleyen talepler</h2>
+          <ul>
+            {requests.map((request) => (
+              <li key={request.orderNumber}>
+                <Link href={`/admin/siparisler/${request.orderNumber}`}>{request.orderNumber}</Link> ·{" "}
+                {REQUEST_KIND_LABELS[request.kind]} · {request.customerName} · {dateFormatter.format(request.createdAt)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <nav className="admin-nav" aria-label="Sipariş durumları">
         <Link href="/admin/siparisler" aria-current={status ? undefined : "page"}>

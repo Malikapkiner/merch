@@ -8,7 +8,7 @@ import { createFakeEmailSender } from "../notifications";
 import type { FakeEmailSender } from "../notifications";
 import { createShipping } from "../shipping";
 import type { CheckoutInput } from "./index";
-import { createOrderEmails, createOrders, MissingTrackingNumberError, OrderStatusError } from "./index";
+import { createOrderEmails, createOrders, MissingTrackingNumberError, NoOpenRequestError, OrderStatusError } from "./index";
 
 const testDb = openTestDatabase();
 const catalog = createCatalog(testDb.db);
@@ -921,5 +921,183 @@ describe("Guest Order lookup", () => {
 
     clock.now = new Date(clock.now.getTime() + 16 * 60 * 1000);
     expect((await guess(SIGNATURE_CLIENT, "ayse@example.com")).ok).toBe(true);
+  });
+});
+
+describe("Cancellation and return requests", () => {
+  async function orderIn(status: "paid" | "preparing" | "shipped" | "delivered", memberId?: number): Promise<string> {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }], memberId }));
+    payments.approve(token);
+    await orders.confirmPayment(token);
+    const steps = { paid: [], preparing: ["preparing"], shipped: ["preparing", "shipped"], delivered: ["preparing", "shipped", "delivered"] } as const;
+    for (const step of steps[status]) await orders.changeStatus(orderNumber, step, { trackingNumber: "YK1234567890" });
+    return orderNumber;
+  }
+
+  it("lets a Member ask to cancel an Order that has not shipped, with a gerekçe", async () => {
+    const orderNumber = await orderIn("paid", 7);
+
+    const result = await orders.submitRequest({ orderNumber, reason: " Yanlış ürün seçtim ", requester: { memberId: 7 } });
+
+    expect(result).toMatchObject({ ok: true, request: { orderNumber, kind: "cancellation", reason: "Yanlış ürün seçtim", status: "open" } });
+    expect(await orders.getRequest(orderNumber)).toMatchObject({ kind: "cancellation", status: "open" });
+    expect((await orders.getOrder(orderNumber))?.status).toBe("paid");
+  });
+
+  it("makes the request type follow the Sipariş Durumu: İptal before delivery, İade once shipped", async () => {
+    const kinds: Record<string, string | undefined> = {};
+    for (const status of ["paid", "preparing", "shipped", "delivered"] as const) {
+      const orderNumber = await orderIn(status, 7);
+      const result = await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } });
+      kinds[status] = result.ok ? result.request.kind : undefined;
+    }
+
+    expect(kinds).toEqual({ paid: "cancellation", preparing: "cancellation", shipped: "return", delivered: "return" });
+  });
+
+  it("lets a Misafir ask with the e-posta on the Order, and no one else", async () => {
+    const orderNumber = await orderIn("paid");
+
+    expect(await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { email: "baska@example.com" } })).toEqual({
+      ok: false,
+      reason: "not-found",
+    });
+    expect(await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } })).toEqual({
+      ok: false,
+      reason: "not-found",
+    });
+    expect(await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { email: " AYSE@example.com " } })).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("does not reveal another Member's Order", async () => {
+    const orderNumber = await orderIn("paid", 7);
+
+    expect(await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 8 } })).toEqual({
+      ok: false,
+      reason: "not-found",
+    });
+    expect(await orders.getRequest(orderNumber)).toBeNull();
+  });
+
+  it("needs a gerekçe", async () => {
+    const orderNumber = await orderIn("paid", 7);
+
+    expect(await orders.submitRequest({ orderNumber, reason: "   ", requester: { memberId: 7 } })).toEqual({
+      ok: false,
+      reason: "missing-reason",
+    });
+  });
+
+  it("allows one open request per Order", async () => {
+    const orderNumber = await orderIn("paid", 7);
+    await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } });
+
+    expect(await orders.submitRequest({ orderNumber, reason: "Tekrar", requester: { memberId: 7 } })).toEqual({
+      ok: false,
+      reason: "already-open",
+    });
+  });
+
+  it("allows no request on an Order that is already İptal or İade", async () => {
+    const orderNumber = await orderIn("paid", 7);
+    await orders.changeStatus(orderNumber, "cancelled");
+
+    expect(await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } })).toEqual({
+      ok: false,
+      reason: "not-eligible",
+    });
+  });
+
+  it("hides card payment attempts that never completed", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }], memberId: 7 }));
+
+    expect(await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } })).toEqual({
+      ok: false,
+      reason: "not-found",
+    });
+  });
+
+  it("lists open requests for the Admin, oldest first, and drops them once resolved", async () => {
+    const first = await orderIn("paid", 7);
+    const second = await orderIn("delivered", 8);
+    await orders.submitRequest({ orderNumber: first, reason: "Yanlış ürün", requester: { memberId: 7 } });
+    await orders.submitRequest({ orderNumber: second, reason: "Şişe kırık", requester: { memberId: 8 } });
+
+    const open = await orders.listOpenRequests();
+
+    expect(open).toMatchObject([
+      { orderNumber: first, kind: "cancellation", reason: "Yanlış ürün", customerName: "Ayşe Yılmaz", email: "ayse@example.com" },
+      { orderNumber: second, kind: "return", reason: "Şişe kırık" },
+    ]);
+
+    await orders.resolveRequest(first, { outcome: "reject", note: "Hazırlık başladı" });
+    expect((await orders.listOpenRequests()).map((request) => request.orderNumber)).toEqual([second]);
+  });
+
+  it("approving a cancellation request makes the Order İptal and keeps the Admin's note", async () => {
+    const orderNumber = await orderIn("preparing", 7);
+    await orders.submitRequest({ orderNumber, reason: "Yanlış ürün", requester: { memberId: 7 } });
+
+    await orders.resolveRequest(orderNumber, { outcome: "approve", note: " İyzico'dan iade edildi " });
+
+    expect(await orders.getOrder(orderNumber)).toMatchObject({ status: "cancelled", adminNote: "İyzico'dan iade edildi" });
+    expect(await orders.getRequest(orderNumber)).toMatchObject({
+      status: "approved",
+      resolutionNote: "İyzico'dan iade edildi",
+      resolvedAt: expect.any(Date),
+    });
+  });
+
+  it("approving a return request makes the Order İade", async () => {
+    const orderNumber = await orderIn("delivered", 7);
+    await orders.submitRequest({ orderNumber, reason: "Şişe kırık", requester: { memberId: 7 } });
+
+    await orders.resolveRequest(orderNumber, { outcome: "approve" });
+
+    expect((await orders.getOrder(orderNumber))?.status).toBe("returned");
+  });
+
+  it("rejecting a request leaves the Order as it is and lets the Customer ask again", async () => {
+    const orderNumber = await orderIn("paid", 7);
+    await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } });
+
+    await orders.resolveRequest(orderNumber, { outcome: "reject", note: "Kargoya verildi" });
+
+    expect((await orders.getOrder(orderNumber))?.status).toBe("paid");
+    expect(await orders.getRequest(orderNumber)).toMatchObject({ status: "rejected", resolutionNote: "Kargoya verildi" });
+    expect(await orders.submitRequest({ orderNumber, reason: "Tekrar", requester: { memberId: 7 } })).toMatchObject({ ok: true });
+  });
+
+  it("refuses to resolve an Order without an open request", async () => {
+    const orderNumber = await orderIn("paid", 7);
+
+    await expect(orders.resolveRequest(orderNumber, { outcome: "approve" })).rejects.toThrow(NoOpenRequestError);
+    expect((await orders.getOrder(orderNumber))?.status).toBe("paid");
+  });
+
+  it("settles an open request as approved when the Admin cancels the Order directly", async () => {
+    const orderNumber = await orderIn("paid", 7);
+    await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } });
+
+    await orders.changeStatus(orderNumber, "cancelled", { note: "Telefonda konuşuldu" });
+
+    expect(await orders.getRequest(orderNumber)).toMatchObject({ status: "approved" });
+    expect(await orders.listOpenRequests()).toEqual([]);
+  });
+
+  it("cannot approve a cancellation request once the Order has shipped, but can still reject it", async () => {
+    const orderNumber = await orderIn("preparing", 7);
+    await orders.submitRequest({ orderNumber, reason: "Vazgeçtim", requester: { memberId: 7 } });
+    await orders.changeStatus(orderNumber, "shipped", { trackingNumber: "YK1234567890" });
+
+    await expect(orders.resolveRequest(orderNumber, { outcome: "approve" })).rejects.toThrow(OrderStatusError);
+    expect(await orders.getRequest(orderNumber)).toMatchObject({ status: "open" });
+
+    await orders.resolveRequest(orderNumber, { outcome: "reject", note: "Kargoya verildi" });
+    expect(await orders.getRequest(orderNumber)).toMatchObject({ status: "rejected" });
   });
 });

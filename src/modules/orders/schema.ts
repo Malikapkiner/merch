@@ -1,5 +1,14 @@
-import { index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
-import type { Address, BillingInfo, CancellationReason, OrderStatus, PaymentMethod } from "./types";
+import { sql } from "drizzle-orm";
+import { index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import type {
+  Address,
+  BillingInfo,
+  CancellationReason,
+  OrderRequestKind,
+  OrderRequestStatus,
+  OrderStatus,
+  PaymentMethod,
+} from "./types";
 
 export const orderStatus = pgEnum("order_status", [
   "awaiting_payment",
@@ -78,4 +87,25 @@ export const orderLookupAttempts = pgTable(
     attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
   },
   (table) => [index("order_lookup_attempts_client_idx").on(table.clientKey)],
+);
+
+/** A Customer's İptal or İade request on an Order; at most one is open per Order. */
+export const orderRequests = pgTable(
+  "order_requests",
+  {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<OrderRequestKind>().notNull(),
+    reason: text("reason").notNull(),
+    status: text("status").$type<OrderRequestStatus>().notNull().default("open"),
+    resolutionNote: text("resolution_note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at"),
+  },
+  (table) => [
+    index("order_requests_order_idx").on(table.orderId),
+    uniqueIndex("order_requests_one_open_idx").on(table.orderId).where(sql`${table.status} = 'open'`),
+  ],
 );

@@ -8,8 +8,8 @@ import { getCurrentVersion } from "../legal";
 import type { PaymentAddress, PaymentProvider } from "../payment";
 import { createShipping } from "../shipping";
 import type { OrderEmails } from "./emails";
-import { orderLines, orderLookupAttempts, orders } from "./schema";
-import { assertTransition, MissingTrackingNumberError, OrderStatusError } from "./transitions";
+import { orderLines, orderLookupAttempts, orderRequests, orders } from "./schema";
+import { assertTransition, MissingTrackingNumberError, NoOpenRequestError, OrderStatusError, requestKindFor } from "./transitions";
 import type {
   Address,
   CancellationReason,
@@ -18,12 +18,17 @@ import type {
   ConfirmPaymentResult,
   LookupOrderInput,
   LookupOrderResult,
+  OpenOrderRequest,
   Order,
+  OrderRequest,
   OrderStatus,
   OrderSummary,
   PaymentMethod,
   PlaceBankTransferOrderResult,
   PlaceOrderResult,
+  ResolveRequestInput,
+  SubmitRequestInput,
+  SubmitRequestResult,
 } from "./types";
 import { validateCheckoutDetails } from "./validation";
 
@@ -73,6 +78,19 @@ const isCustomerVisible = and(
 const OUT_OF_STOCK: CancellationReason = "out-of-stock";
 
 type OrderRow = typeof orders.$inferSelect;
+type RequestRow = typeof orderRequests.$inferSelect;
+
+function toOrderRequest(row: RequestRow, orderNumber: string): OrderRequest {
+  return {
+    orderNumber,
+    kind: row.kind,
+    reason: row.reason,
+    status: row.status,
+    resolutionNote: row.resolutionNote,
+    createdAt: row.createdAt,
+    resolvedAt: row.resolvedAt,
+  };
+}
 
 type Settlement = {
   orderId: number;
@@ -98,6 +116,22 @@ async function moveStatus(
 ): Promise<void> {
   assertTransition(order.status, to);
   await tx.update(orders).set({ ...changes, status: to }).where(eq(orders.id, order.id));
+}
+
+/** Settles an Order's open request, if any. */
+async function settleOpenRequest(
+  tx: Transaction,
+  orderId: number,
+  status: "approved" | "rejected",
+  resolutionNote: string | null,
+  resolvedAt: Date,
+): Promise<boolean> {
+  const settled = await tx
+    .update(orderRequests)
+    .set({ status, resolutionNote, resolvedAt })
+    .where(and(eq(orderRequests.orderId, orderId), eq(orderRequests.status, "open")))
+    .returning({ id: orderRequests.id });
+  return settled.length > 0;
 }
 
 /**
@@ -398,6 +432,8 @@ export function createOrders(db: Database, options: OrdersOptions) {
           ...(to === "shipped" && { trackingNumber }),
           ...((to === "cancelled" || to === "returned") && { adminNote: note }),
         });
+        // Whatever the Customer asked for, İptal or İade settles it.
+        if (to === "cancelled" || to === "returned") await settleOpenRequest(tx, order.id, "approved", note, now());
       });
       // After the commit: the move is settled, and a failed e-mail never undoes it.
       if (to === "shipped") {
@@ -467,6 +503,86 @@ export function createOrders(db: Database, options: OrdersOptions) {
         }
         return { ok: true, order };
       });
+    },
+
+    /**
+     * A Customer's İptal request (Order not yet shipped) or İade request (shipped or delivered),
+     * with a gerekçe. Only the Member who placed the Order, or the e-posta on it, may ask; anyone
+     * else gets "not-found". One request is open per Order at a time.
+     */
+    async submitRequest(input: SubmitRequestInput): Promise<SubmitRequestResult> {
+      const reason = input.reason.trim();
+      return db.transaction(async (tx): Promise<SubmitRequestResult> => {
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(and(eq(orders.orderNumber, input.orderNumber.trim().toUpperCase()), isCustomerVisible))
+          .for("update");
+        const requester = input.requester;
+        if (!order) return { ok: false, reason: "not-found" };
+        const isRequester =
+          "memberId" in requester ? order.memberId === requester.memberId : order.email === requester.email.trim().toLowerCase();
+        if (!isRequester) return { ok: false, reason: "not-found" };
+        if (!reason) return { ok: false, reason: "missing-reason" };
+        const kind = requestKindFor(order.status);
+        if (!kind) return { ok: false, reason: "not-eligible" };
+        const [open] = await tx
+          .select({ id: orderRequests.id })
+          .from(orderRequests)
+          .where(and(eq(orderRequests.orderId, order.id), eq(orderRequests.status, "open")));
+        if (open) return { ok: false, reason: "already-open" };
+        const [row] = await tx.insert(orderRequests).values({ orderId: order.id, kind, reason }).returning();
+        return { ok: true, request: toOrderRequest(row, order.orderNumber) };
+      });
+    },
+
+    /** Open requests for the Admin, oldest first. */
+    async listOpenRequests(): Promise<OpenOrderRequest[]> {
+      const rows = await db
+        .select({ request: orderRequests, order: orders })
+        .from(orderRequests)
+        .innerJoin(orders, eq(orders.id, orderRequests.orderId))
+        .where(eq(orderRequests.status, "open"))
+        .orderBy(asc(orderRequests.createdAt), asc(orderRequests.id));
+      return rows.map(({ request, order }) => ({
+        ...toOrderRequest(request, order.orderNumber),
+        customerName: order.shippingAddress.fullName,
+        email: order.email,
+      }));
+    },
+
+    /**
+     * The Admin's answer to an open request. Approving makes the Order İptal or İade (by the
+     * request's kind) with the note; rejecting leaves the Order as it is. The refund itself is
+     * made by hand in the provider's panel.
+     */
+    async resolveRequest(orderNumber: string, resolution: ResolveRequestInput): Promise<void> {
+      const note = resolution.note?.trim() || null;
+      await db.transaction(async (tx) => {
+        const [order] = await tx.select().from(orders).where(eq(orders.orderNumber, orderNumber)).for("update");
+        if (!order) throw new Error("Order not found");
+        const [request] = await tx
+          .select()
+          .from(orderRequests)
+          .where(and(eq(orderRequests.orderId, order.id), eq(orderRequests.status, "open")));
+        if (!request) throw new NoOpenRequestError();
+        if (resolution.outcome === "approve") {
+          await moveStatus(tx, order, request.kind === "cancellation" ? "cancelled" : "returned", { adminNote: note });
+        }
+        await settleOpenRequest(tx, order.id, resolution.outcome === "approve" ? "approved" : "rejected", note, now());
+      });
+    },
+
+    /** The latest request on an Order, or null when the Customer never made one. */
+    async getRequest(orderNumber: string): Promise<OrderRequest | null> {
+      const [row] = await db
+        .select({ request: orderRequests })
+        .from(orderRequests)
+        .innerJoin(orders, eq(orders.id, orderRequests.orderId))
+        .where(eq(orders.orderNumber, orderNumber))
+        .orderBy(desc(orderRequests.createdAt), desc(orderRequests.id))
+        .limit(1);
+      return row ? toOrderRequest(row.request, orderNumber) : null;
     },
 
     /** The Order behind a confirmation page link, or null for an unknown token. */

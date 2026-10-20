@@ -71,6 +71,13 @@
       "when": 1792504146233,
       "tag": "0009_sturdy_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792520496427,
+      "tag": "0010_nebulous_sandman",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,7 @@ import { getOrders } from "@/lib/orders";
 import { isOrderStatus } from "@/lib/order-status";
 import { getShipping } from "@/lib/shipping";
 import { MAX_PRODUCT_IMAGE_BYTES, ProductImageError } from "@/modules/catalog";
-import { MissingTrackingNumberError, OrderStatusError } from "@/modules/orders";
+import { MissingTrackingNumberError, NoOpenRequestError, OrderStatusError } from "@/modules/orders";
 import { mediaStorage } from "@/lib/media";
 import { parsePriceInput } from "@/lib/price-input";
 
@@ -294,6 +294,23 @@ export async function changeOrderStatusAction(formData: FormData): Promise<void>
   } catch (error) {
     if (error instanceof MissingTrackingNumberError) fail(back, "Kargoya vermek için takip numarası zorunludur.");
     if (error instanceof OrderStatusError) fail(back, "Bu durum geçişi yapılamaz.");
+    throw error;
+  }
+  redirect(`${back}?durum=kaydedildi`);
+}
+
+export async function resolveRequestAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const orderNumber = textField(formData, "orderNumber");
+  const outcome = textField(formData, "outcome");
+  const back = `/admin/siparisler/${encodeURIComponent(orderNumber)}`;
+  if (outcome !== "approve" && outcome !== "reject") fail(back, "Geçersiz karar.");
+
+  try {
+    await getOrders().resolveRequest(orderNumber, { outcome, note: textField(formData, "note") });
+  } catch (error) {
+    if (error instanceof NoOpenRequestError) fail(back, "Bu siparişte inceleme bekleyen talep yok.");
+    if (error instanceof OrderStatusError) fail(back, "Sipariş durumu değişmiş; talep artık onaylanamaz. Talebi reddedebilirsiniz.");
     throw error;
   }
   redirect(`${back}?durum=kaydedildi`);

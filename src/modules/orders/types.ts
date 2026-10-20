@@ -153,3 +153,48 @@ export type LookupOrderResult =
   | { ok: false; reason: "not-found" }
   /** Too many failed lookups from this client; try again later. */
   | { ok: false; reason: "rate-limited" };
+
+/**
+ * What a Customer asks for: İptal of an Order that hasn't been delivered, or İade of one
+ * that has shipped. The kind follows from the Sipariş Durumu when the request is made.
+ */
+export type OrderRequestKind = "cancellation" | "return";
+
+export type OrderRequestStatus = "open" | "approved" | "rejected";
+
+export type OrderRequest = {
+  orderNumber: string;
+  kind: OrderRequestKind;
+  /** The Customer's gerekçe. */
+  reason: string;
+  status: OrderRequestStatus;
+  /** The Admin's note when the request was approved or rejected; internal, never shown to the Customer. */
+  resolutionNote: string | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+};
+
+/** One row of the Admin's open request list. */
+export type OpenOrderRequest = OrderRequest & { customerName: string; email: string };
+
+export type SubmitRequestInput = {
+  orderNumber: string;
+  reason: string;
+  /** Who is asking: the signed-in Member who placed the Order, or the Misafir's e-posta on it. */
+  requester: { memberId: number } | { email: string };
+};
+
+export type ResolveRequestInput = {
+  /** Approving makes the Order İptal or İade by the request's kind; rejecting leaves it as it is. */
+  outcome: "approve" | "reject";
+  note?: string;
+};
+
+export type SubmitRequestResult =
+  | { ok: true; request: OrderRequest }
+  /** No Order of this requester has this number; the same answer whether or not the number exists. */
+  | { ok: false; reason: "not-found" }
+  /** The Order's Sipariş Durumu allows no request (already İptal or İade, or not yet placed). */
+  | { ok: false; reason: "not-eligible" }
+  | { ok: false; reason: "already-open" }
+  | { ok: false; reason: "missing-reason" };

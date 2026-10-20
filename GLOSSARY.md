@@ -66,6 +66,10 @@ _Avoid_: Statü, aşama
 Kredi kartı yerine havale/EFT ile ödenen Sipariş; Admin ödemeyi elle onaylayana kadar Ödeme Bekliyor durumunda kalır.
 _Avoid_: Manuel sipariş
 
+**Talep** (`OrderRequest`):
+Müşterinin bir Sipariş için gerekçesiyle istediği İptal veya İade. Türü Sipariş Durumu'ndan çıkar: Kargoya verilmeden önce İptal, Kargoda veya Teslim Edildi iken İade. Admin onaylarsa Sipariş İptal veya İade olur, reddederse Sipariş aynı kalır; para iadesi elle yapılır.
+_Avoid_: İptal formu, iade başvurusu
+
 **Kargo Ücreti** (`ShippingFee`):
 Ücretsiz Kargo Eşiği'nin altındaki Sepetlerde alınan sabit teslimat ücreti; Admin panelinden ayarlanır ve deploy gerektirmeden geçerli olur.
 _Avoid_: Teslimat ücreti, gönderi bedeli

@@ -1,4 +1,4 @@
-import type { OrderStatus } from "./types";
+import type { OrderRequestKind, OrderStatus } from "./types";
 
 /**
  * Allowed Sipariş Durumu moves. The happy path runs Ödeme Bekliyor → Ödendi →
@@ -43,4 +43,21 @@ export class MissingTrackingNumberError extends Error {
 
 export function assertTransition(from: OrderStatus, to: OrderStatus): void {
   if (!canTransition(from, to)) throw new OrderStatusError(from, to);
+}
+
+/**
+ * The request a Customer can make on an Order in this Sipariş Durumu: İptal until it ships,
+ * İade once it has shipped. Null when the Order is already İptal or İade.
+ */
+export function requestKindFor(status: OrderStatus): OrderRequestKind | null {
+  if (status === "awaiting_payment" || status === "paid" || status === "preparing") return "cancellation";
+  if (status === "shipped" || status === "delivered") return "return";
+  return null;
+}
+
+/** Thrown when an Admin resolves an Order that has no open request. */
+export class NoOpenRequestError extends Error {
+  constructor() {
+    super("The Order has no open request");
+  }
 }

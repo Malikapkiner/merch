@@ -4,6 +4,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireMember, MEMBER_SESSION_COOKIE } from "@/lib/member-session";
 import { getMembers } from "@/lib/members";
+import { getOrders } from "@/lib/orders";
+import { requestFailureMessage } from "@/lib/order-status";
 import { siteOrigin } from "@/lib/site-url";
 import type { MemberAddressField } from "@/modules/accounts";
 
@@ -141,4 +143,17 @@ export async function deleteAddressAction(formData: FormData): Promise<void> {
   const id = Number(textField(formData, "id"));
   if (Number.isInteger(id)) await getMembers().deleteAddress(member.id, id);
   redirect("/hesap/adresler");
+}
+
+export async function requestOrderChangeAction(formData: FormData): Promise<void> {
+  const member = await requireMember();
+  const orderNumber = textField(formData, "orderNumber");
+  const back = `/hesap/siparisler/${encodeURIComponent(orderNumber)}`;
+  const result = await getOrders().submitRequest({
+    orderNumber,
+    reason: textField(formData, "reason"),
+    requester: { memberId: member.id },
+  });
+  if (!result.ok) fail(back, requestFailureMessage(result.reason));
+  redirect(`${back}?durum=talep`);
 }

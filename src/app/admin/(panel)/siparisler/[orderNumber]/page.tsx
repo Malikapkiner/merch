@@ -5,11 +5,11 @@ import { AdminStatus } from "@/components/admin-status";
 import { requireAdmin } from "@/lib/admin-session";
 import { formatPrice } from "@/lib/format-price";
 import { getOrders } from "@/lib/orders";
-import { ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/order-status";
+import { ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, REQUEST_KIND_LABELS, REQUEST_STATUS_LABELS } from "@/lib/order-status";
 import { getDocument } from "@/modules/legal";
 import { nextStatuses } from "@/modules/orders";
 import type { OrderStatus } from "@/modules/orders";
-import { changeOrderStatusAction, confirmBankTransferAction } from "../../../actions";
+import { changeOrderStatusAction, confirmBankTransferAction, resolveRequestAction } from "../../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +35,7 @@ export default async function AdminOrderPage({ params, searchParams }: Props) {
   const [{ orderNumber }, { hata: error, durum: saved }] = await Promise.all([params, searchParams]);
   const order = await getOrders().getOrder(orderNumber);
   if (!order) notFound();
+  const request = await getOrders().getRequest(orderNumber);
   const { shippingAddress: address, billing } = order;
   const steps = nextStatuses(order.status);
   const closing = steps.filter((step) => step === "cancelled" || step === "returned");
@@ -52,6 +53,37 @@ export default async function AdminOrderPage({ params, searchParams }: Props) {
         {order.trackingNumber && <> · Takip no: {order.trackingNumber}</>}
       </p>
       {order.adminNote && <p>Not: {order.adminNote}</p>}
+
+      {request && (
+        <section className="admin-card">
+          <h2>
+            {REQUEST_KIND_LABELS[request.kind]} · {REQUEST_STATUS_LABELS[request.status]}
+          </h2>
+          <p>
+            {dateFormatter.format(request.createdAt)}
+            <br />
+            Müşterinin gerekçesi: {request.reason}
+          </p>
+          {request.resolutionNote && <p>Not: {request.resolutionNote}</p>}
+          {request.status === "open" && (
+            <form action={resolveRequestAction} className="admin-form">
+              <input type="hidden" name="orderNumber" value={order.orderNumber} />
+              <div className="field">
+                <label htmlFor="requestNote">Not (iyzico panelinden para iadesi elle yapılır)</label>
+                <textarea id="requestNote" name="note" rows={2} />
+              </div>
+              <div className="admin-form--inline">
+                <button className="button" type="submit" name="outcome" value="approve">
+                  {request.kind === "cancellation" ? "Onayla ve İptal et" : "Onayla ve İade al"}
+                </button>
+                <button className="button" type="submit" name="outcome" value="reject">
+                  Reddet
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      )}
 
       <section className="admin-card">
         <h2>İçerik</h2>
