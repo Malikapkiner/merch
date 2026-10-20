@@ -1,4 +1,4 @@
-import { integer, jsonb, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import type { Address, BillingInfo, CancellationReason, OrderStatus, PaymentMethod } from "./types";
 
 export const orderStatus = pgEnum("order_status", [
@@ -68,3 +68,14 @@ export const orderLines = pgTable("order_lines", {
   lineTotalKurus: integer("line_total_kurus").notNull(),
   position: integer("position").notNull(),
 });
+
+/** Failed Misafir Order lookups, used to rate limit guessing per client. */
+export const orderLookupAttempts = pgTable(
+  "order_lookup_attempts",
+  {
+    id: serial("id").primaryKey(),
+    clientKey: text("client_key").notNull(),
+    attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
+  },
+  (table) => [index("order_lookup_attempts_client_idx").on(table.clientKey)],
+);

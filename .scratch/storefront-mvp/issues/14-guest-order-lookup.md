@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Sorgu formu Sipariş numarası ve e-posta ister
-- [ ] Doğru eşleşmede Sipariş kalemleri, Sipariş Durumu ve varsa takip numarası görünür
-- [ ] Yanlış eşleşmede Siparişin var olup olmadığı belli edilmeyen genel bir hata gösterilir
-- [ ] Sorgulara hız sınırı uygulanır
-- [ ] Kurallar modül arayüzü üzerinden test edilmiştir
+- [x] Sorgu formu Sipariş numarası ve e-posta ister
+- [x] Doğru eşleşmede Sipariş kalemleri, Sipariş Durumu ve varsa takip numarası görünür
+- [x] Yanlış eşleşmede Siparişin var olup olmadığı belli edilmeyen genel bir hata gösterilir
+- [x] Sorgulara hız sınırı uygulanır
+- [x] Kurallar modül arayüzü üzerinden test edilmiştir

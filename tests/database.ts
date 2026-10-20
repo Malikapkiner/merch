@@ -16,7 +16,7 @@ export function openTestDatabase() {
   const { db, close } = createDatabase(testDatabaseUrl());
   async function truncateAll() {
     await db.execute(
-      sql`TRUNCATE TABLE products, product_images, categories, admins, admin_sessions, members, member_sessions, password_reset_tokens, member_addresses, login_attempts, shipping_settings, orders, order_lines RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE TABLE products, product_images, categories, admins, admin_sessions, members, member_sessions, password_reset_tokens, member_addresses, login_attempts, shipping_settings, orders, order_lines, order_lookup_attempts RESTART IDENTITY CASCADE`,
     );
   }
   return { db, close, truncateAll };

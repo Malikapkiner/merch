@@ -13,6 +13,8 @@ export type {
   CheckoutInput,
   ConfirmBankTransferResult,
   ConfirmPaymentResult,
+  LookupOrderInput,
+  LookupOrderResult,
   Order,
   OrderLine,
   OrderStatus,

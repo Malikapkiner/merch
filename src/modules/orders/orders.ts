@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { randomBytes, randomInt } from "node:crypto";
 import type { Database, Transaction } from "@/db/client";
 import { addToCart, priceCart } from "../cart";
@@ -8,7 +8,7 @@ import { getCurrentVersion } from "../legal";
 import type { PaymentAddress, PaymentProvider } from "../payment";
 import { createShipping } from "../shipping";
 import type { OrderEmails } from "./emails";
-import { orderLines, orders } from "./schema";
+import { orderLines, orderLookupAttempts, orders } from "./schema";
 import { assertTransition, MissingTrackingNumberError, OrderStatusError } from "./transitions";
 import type {
   Address,
@@ -16,6 +16,8 @@ import type {
   CheckoutInput,
   ConfirmBankTransferResult,
   ConfirmPaymentResult,
+  LookupOrderInput,
+  LookupOrderResult,
   Order,
   OrderStatus,
   OrderSummary,
@@ -25,7 +27,10 @@ import type {
 } from "./types";
 import { validateCheckoutDetails } from "./validation";
 
-export type OrdersOptions = { payments: PaymentProvider; emails: OrderEmails };
+export type OrdersOptions = { payments: PaymentProvider; emails: OrderEmails; now?: () => Date };
+
+const MAX_FAILED_LOOKUPS = 5;
+const LOOKUP_WINDOW_MS = 15 * 60 * 1000;
 
 /** The documents the Customer accepts at checkout; their versions are stored on the Order. */
 const ACCEPTED_DOCUMENT_SLUGS = ["mesafeli-satis-sozlesmesi", "on-bilgilendirme-formu"] as const;
@@ -59,6 +64,12 @@ function paymentAddress(
 }
 
 const PAYMENT_FAILED: CancellationReason = "payment-failed";
+
+/** Card payment attempts that never completed (still Ödeme Bekliyor, or İptal because the payment failed) are not the Customer's Orders. */
+const isCustomerVisible = and(
+  or(eq(orders.paymentMethod, "bank_transfer"), ne(orders.status, "awaiting_payment")),
+  or(isNull(orders.cancellationReason), ne(orders.cancellationReason, PAYMENT_FAILED)),
+)!;
 const OUT_OF_STOCK: CancellationReason = "out-of-stock";
 
 type OrderRow = typeof orders.$inferSelect;
@@ -96,6 +107,7 @@ async function moveStatus(
  */
 export function createOrders(db: Database, options: OrdersOptions) {
   const { payments, emails } = options;
+  const now = options.now ?? (() => new Date());
   const catalog = createCatalog(db);
   const shipping = createShipping(db);
 
@@ -422,16 +434,39 @@ export function createOrders(db: Database, options: OrdersOptions) {
       const rows = await db
         .select({ orderNumber: orders.orderNumber })
         .from(orders)
-        .where(
-          and(
-            eq(orders.memberId, memberId),
-            or(eq(orders.paymentMethod, "bank_transfer"), ne(orders.status, "awaiting_payment")),
-            or(isNull(orders.cancellationReason), ne(orders.cancellationReason, PAYMENT_FAILED)),
-          ),
-        )
+        .where(and(eq(orders.memberId, memberId), isCustomerVisible))
         .orderBy(desc(orders.createdAt), desc(orders.id));
       const history = await Promise.all(rows.map((row) => loadOrder(eq(orders.orderNumber, row.orderNumber))));
       return history.filter((order): order is Order => order !== null);
+    },
+
+    /**
+     * A Misafir's lookup: the Order is shown only when the number and e-posta match. Unknown
+     * numbers and wrong e-postas give the same answer so the lookup never confirms an Order exists.
+     */
+    async lookupOrder(input: LookupOrderInput): Promise<LookupOrderResult> {
+      const attemptedAt = now();
+      const windowStart = new Date(attemptedAt.getTime() - LOOKUP_WINDOW_MS);
+      const { clientKey } = input;
+      return db.transaction(async (tx): Promise<LookupOrderResult> => {
+        // Serialise one client's lookups so concurrent guesses cannot each read an under-limit count.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`order-lookup:${clientKey}`}))`);
+        await tx.delete(orderLookupAttempts).where(lt(orderLookupAttempts.attemptedAt, windowStart));
+        const [{ failures }] = await tx
+          .select({ failures: count() })
+          .from(orderLookupAttempts)
+          .where(eq(orderLookupAttempts.clientKey, clientKey));
+        if (failures >= MAX_FAILED_LOOKUPS) return { ok: false, reason: "rate-limited" };
+
+        const order = await loadOrder(
+          and(eq(orders.orderNumber, input.orderNumber.trim().toUpperCase()), isCustomerVisible)!,
+        );
+        if (!order || order.email !== input.email.trim().toLowerCase()) {
+          await tx.insert(orderLookupAttempts).values({ clientKey, attemptedAt });
+          return { ok: false, reason: "not-found" };
+        }
+        return { ok: true, order };
+      });
     },
 
     /** The Order behind a confirmation page link, or null for an unknown token. */

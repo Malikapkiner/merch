@@ -864,3 +864,62 @@ describe("Member Order history", () => {
     expect(await orders.listOrdersForMember(7)).toEqual([]);
   });
 });
+
+describe("Guest Order lookup", () => {
+  const SIGNATURE_CLIENT = "85.105.12.34";
+
+  async function paidOrderFor(email: string): Promise<string> {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const { orderNumber, token } = await placeOrder(checkout({ email, items: [{ variantId: oil.id, quantity: 1 }] }));
+    payments.approve(token);
+    await orders.confirmPayment(token);
+    return orderNumber;
+  }
+
+  it("shows the Order to whoever gives its number and e-posta, ignoring e-posta case and spaces", async () => {
+    const orderNumber = await paidOrderFor("ayse@example.com");
+    await orders.changeStatus(orderNumber, "preparing");
+    await orders.changeStatus(orderNumber, "shipped", { trackingNumber: "YK1234567890" });
+
+    const result = await orders.lookupOrder({ orderNumber, email: "  Ayse@EXAMPLE.com ", clientKey: SIGNATURE_CLIENT });
+
+    expect(result).toMatchObject({
+      ok: true,
+      order: { orderNumber, status: "shipped", trackingNumber: "YK1234567890", lines: [{ productName: "Erken Hasat Zeytinyağı" }] },
+    });
+  });
+
+  it("answers the same for a wrong e-posta, an unknown number and an unpaid card attempt", async () => {
+    const orderNumber = await paidOrderFor("ayse@example.com");
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const abandoned = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+
+    const wrongEmail = await orders.lookupOrder({ orderNumber, email: "baska@example.com", clientKey: SIGNATURE_CLIENT });
+    const unknownNumber = await orders.lookupOrder({ orderNumber: "ZZZZZZZZ", email: "ayse@example.com", clientKey: SIGNATURE_CLIENT });
+    const unpaidCard = await orders.lookupOrder({ orderNumber: abandoned.orderNumber, email: "ayse@example.com", clientKey: SIGNATURE_CLIENT });
+
+    expect(wrongEmail).toEqual({ ok: false, reason: "not-found" });
+    expect(unknownNumber).toEqual(wrongEmail);
+    expect(unpaidCard).toEqual(wrongEmail);
+  });
+
+  it("rate limits failed lookups per client, then lets them try again later", async () => {
+    const clock = { now: new Date("2026-01-01T00:00:00.000Z") };
+    orders = createOrders(testDb.db, {
+      payments,
+      emails: createOrderEmails({ sender: mail, brandName: "Zeytin Evi", bankAccount: BANK_ACCOUNT }),
+      now: () => clock.now,
+    });
+    const orderNumber = await paidOrderFor("ayse@example.com");
+    const guess = (clientKey: string, email = "yanlis@example.com") => orders.lookupOrder({ orderNumber, email, clientKey });
+
+    for (let i = 0; i < 5; i++) expect(await guess(SIGNATURE_CLIENT)).toEqual({ ok: false, reason: "not-found" });
+
+    expect(await guess(SIGNATURE_CLIENT)).toEqual({ ok: false, reason: "rate-limited" });
+    expect(await guess(SIGNATURE_CLIENT, "ayse@example.com")).toEqual({ ok: false, reason: "rate-limited" });
+    expect((await guess("203.0.113.9", "ayse@example.com")).ok).toBe(true);
+
+    clock.now = new Date(clock.now.getTime() + 16 * 60 * 1000);
+    expect((await guess(SIGNATURE_CLIENT, "ayse@example.com")).ok).toBe(true);
+  });
+});

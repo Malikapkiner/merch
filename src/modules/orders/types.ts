@@ -139,3 +139,17 @@ export type ConfirmBankTransferResult =
   | { ok: true; order: Order }
   /** A Variant has less Stok than the Order needs; the Order stays Ödeme Bekliyor and Stok is untouched. */
   | { ok: false; reason: "insufficient-stock"; variantName: string };
+
+export type LookupOrderInput = {
+  orderNumber: string;
+  email: string;
+  /** Who is asking (the client address); failed lookups are counted per client. */
+  clientKey: string;
+};
+
+export type LookupOrderResult =
+  | { ok: true; order: Order }
+  /** No Order has this number and e-posta; deliberately the same answer whether or not the number exists. */
+  | { ok: false; reason: "not-found" }
+  /** Too many failed lookups from this client; try again later. */
+  | { ok: false; reason: "rate-limited" };

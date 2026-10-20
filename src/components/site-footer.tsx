@@ -18,6 +18,9 @@ export function SiteFooter() {
                   <Link href={link.href}>{link.label}</Link>
                 </li>
               ))}
+              <li>
+                <Link href="/siparis-sorgula">Sipariş sorgula</Link>
+              </li>
             </ul>
           </nav>
           <nav aria-label="Yasal">
