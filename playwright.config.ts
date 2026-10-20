@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 import { testDatabaseUrl } from "./tests/database";
 
 const port = 3100;
+const distDir = ".next-e2e";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -15,13 +16,14 @@ export default defineConfig({
   },
   // The standalone production build, as the Dockerfile ships it, with the fake payment provider forced on (never set it live).
   webServer: {
-    command: `pnpm build && cp -R .next/static .next/standalone/.next/static && PORT=${port} node .next/standalone/server.js`,
+    command: `pnpm build && cp -R ${distDir}/static ${distDir}/standalone/${distDir}/static && PORT=${port} node ${distDir}/standalone/server.js`,
     url: `http://localhost:${port}/api/health`,
     timeout: 300_000,
     reuseExistingServer: false,
     env: {
       DATABASE_URL: testDatabaseUrl(),
       PAYMENT_PROVIDER: "fake",
+      NEXT_DIST_DIR: distDir,
       HOSTNAME: "localhost",
       SITE_URL: `http://localhost:${port}`,
     },

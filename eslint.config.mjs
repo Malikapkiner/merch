@@ -4,7 +4,7 @@ import nextTs from "eslint-config-next/typescript";
 const config = [
   ...nextVitals,
   ...nextTs,
-  { ignores: [".next/**", "drizzle/**", "next-env.d.ts"] },
+  { ignores: [".next/**", ".next-e2e/**", "drizzle/**", "next-env.d.ts"] },
   {
     // Deep modules: reach into a module only through its index.ts.
     files: ["src/**/*.{ts,tsx}"],
