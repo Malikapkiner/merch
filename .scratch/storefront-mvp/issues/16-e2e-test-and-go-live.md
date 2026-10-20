@@ -4,7 +4,7 @@
 
 **Blocked by:** 09, 10, 12
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [x] Tek bir uçtan uca tarayıcı testi, sahte ödeme sağlayıcısıyla ürün seçimi, sepet, checkout ve onay sayfasını doğrular
 - [ ] Üretim ortamı yapılandırılmıştır: alan adı, SSL, Cloudflare, ortam değişkenleri ve gizli anahtarlar

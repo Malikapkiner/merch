@@ -40,7 +40,7 @@ Neon, her projede geçmiş penceresi (point-in-time restore) tutar; pencerenin s
 
 - [ ] Canlı anahtarlar Coolify'da, deploy edildi
 - [ ] En ucuz ürünle gerçek kartla küçük bir sipariş verildi → Sipariş Ödendi, Stok düştü, onay e-postası geldi
-- [ ] Aynı sipariş Admin panelinden iptal/iade edildi; iyzico panelinde iade göründü, kart hesabına döndü
+- [ ] Müşteri olarak iade Talebi açıldı, Admin panelinden onaylandı (uygulama iyzico'ya iade göndermez), ardından iade iyzico panelinden elle yapıldı; kart hesabına döndü
 - [ ] Test siparişi ve test Stoğu Admin panelinden düzeltildi
 
 ## 5. Hukuki metinler ve banka bilgileri

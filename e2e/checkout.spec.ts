@@ -15,7 +15,7 @@ test("a Customer buys a Product with a card: catalog, cart, checkout, payment, c
   await page.getByLabel("Telefon").fill("0532 123 45 67");
   await page.getByLabel("Ad soyad").fill("Ayşe Yılmaz");
   await page.getByLabel("İl", { exact: true }).selectOption("İstanbul");
-  await page.getByLabel("İlçe", { exact: true }).selectOption({ index: 1 });
+  await page.getByLabel("İlçe", { exact: true }).selectOption("Kadıköy");
   await page.getByLabel("Mahalle").fill("Caferağa");
   await page.getByLabel(/Açık adres/).fill("Moda Cad. No 1 Daire 2");
   await page.getByLabel(/Mesafeli Satış Sözleşmesi/).check();
