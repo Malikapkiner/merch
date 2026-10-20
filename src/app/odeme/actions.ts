@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getOrders } from "@/lib/orders";
 import type { CartItem } from "@/modules/cart";
-import type { CheckoutField } from "@/modules/orders";
+import type { CheckoutField, CheckoutInput, PlaceBankTransferOrderResult, PlaceOrderResult } from "@/modules/orders";
 
 export type CheckoutState = { error?: string; fields?: CheckoutField[] } | undefined;
 
@@ -57,8 +57,7 @@ export async function placeOrderAction(_state: CheckoutState, formData: FormData
         addressLine: textField(formData, "billingAddressLine"),
       };
 
-  const result = await getOrders().placeOrder(
-    {
+  const checkout: CheckoutInput = {
       items: cartItems(formData),
       email: textField(formData, "email"),
       phone: textField(formData, "phone"),
@@ -72,11 +71,16 @@ export async function placeOrderAction(_state: CheckoutState, formData: FormData
         taxNumber: textField(formData, "taxNumber") || null,
       },
       acceptedContracts: formData.get("acceptedContracts") !== null,
-    },
-    { callbackUrl: await callbackUrl(), customerIp: await customerIp() },
-  );
+  };
 
-  if (result.ok) redirect(result.paymentUrl);
+  let result: PlaceOrderResult | PlaceBankTransferOrderResult;
+  if (textField(formData, "paymentMethod") === "bank_transfer") {
+    result = await getOrders().placeBankTransferOrder(checkout);
+    if (result.ok) redirect(`/siparis/onay/${result.accessToken}?yeni=1`);
+  } else {
+    result = await getOrders().placeOrder(checkout, { callbackUrl: await callbackUrl(), customerIp: await customerIp() });
+    if (result.ok) redirect(result.paymentUrl);
+  }
   switch (result.reason) {
     case "contracts-not-accepted":
       return { error: "Ödemeye geçmek için Mesafeli Satış Sözleşmesi'ni ve Ön Bilgilendirme Formu'nu onaylayın." };

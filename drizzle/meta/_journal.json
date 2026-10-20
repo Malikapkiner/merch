@@ -50,6 +50,13 @@
       "when": 1792498181322,
       "tag": "0006_bored_bruce_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792501200064,
+      "tag": "0007_sloppy_scalphunter",
+      "breakpoints": true
     }
   ]
 }

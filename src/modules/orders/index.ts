@@ -6,14 +6,18 @@ export { MissingTrackingNumberError, nextStatuses, OrderStatusError } from "./tr
 export type { Orders, OrdersOptions } from "./orders";
 export type {
   Address,
+  BankAccount,
   BillingInfo,
   CancellationReason,
   CheckoutField,
   CheckoutInput,
+  ConfirmBankTransferResult,
   ConfirmPaymentResult,
   Order,
   OrderLine,
   OrderStatus,
   OrderSummary,
+  PaymentMethod,
+  PlaceBankTransferOrderResult,
   PlaceOrderResult,
 } from "./types";

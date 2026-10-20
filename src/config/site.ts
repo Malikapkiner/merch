@@ -4,6 +4,16 @@ export const siteConfig = {
   description: "Doğal zeytinyağı, zeytin ve salça. Üreticiden doğrudan sofranıza.",
 } as const;
 
+/**
+ * Where Havale Siparişleri are paid to. Placeholder values: replace with the
+ * Store's real account before go-live (ticket 16).
+ */
+export const bankAccount = {
+  bankName: "Örnek Bank",
+  accountHolder: "Merch Gıda Ticaret Ltd. Şti.",
+  iban: "TR00 0000 0000 0000 0000 0000 00",
+} as const;
+
 export const navLinks = [{ href: "/urunler", label: "Ürünler" }] as const;
 
 /** Legal pages; slugs match the Legal module documents. */

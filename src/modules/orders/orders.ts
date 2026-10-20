@@ -14,10 +14,13 @@ import type {
   Address,
   CancellationReason,
   CheckoutInput,
+  ConfirmBankTransferResult,
   ConfirmPaymentResult,
   Order,
   OrderStatus,
   OrderSummary,
+  PaymentMethod,
+  PlaceBankTransferOrderResult,
   PlaceOrderResult,
 } from "./types";
 import { validateCheckoutDetails } from "./validation";
@@ -116,6 +119,7 @@ export function createOrders(db: Database, options: OrdersOptions) {
       orderNumber: row.orderNumber,
       accessToken: row.accessToken,
       status: row.status,
+      paymentMethod: row.paymentMethod,
       email: row.email,
       phone: row.phone,
       shippingAddress: row.shippingAddress,
@@ -133,6 +137,64 @@ export function createOrders(db: Database, options: OrdersOptions) {
     };
   }
 
+  /**
+   * Validates the checkout, prices the cart from current Variants and shipping
+   * settings, and stores an Ödeme Bekliyor Order with a snapshot of everything
+   * the Customer agreed to. Stok is not touched.
+   */
+  async function createOrder(input: CheckoutInput, method: PaymentMethod) {
+    if (!input.acceptedContracts) return { ok: false, reason: "contracts-not-accepted" } as const;
+    const validation = validateCheckoutDetails(input);
+    if (!validation.ok) return { ok: false, reason: "invalid-details", fields: validation.fields } as const;
+    const { details } = validation;
+
+    // Merged per Variant so one Variant can't dodge the Stok check across two lines.
+    const items = input.items
+      .filter((item) => Number.isInteger(item.variantId) && Number.isInteger(item.quantity))
+      .reduce((merged: CartItem[], item) => addToCart(merged, item.variantId, item.quantity), []);
+    if (items.length === 0) return { ok: false, reason: "empty-cart" } as const;
+
+    const [variants, settings] = await Promise.all([
+      catalog.getVariantsByIds(items.map((item) => item.variantId)),
+      shipping.getSettings(),
+    ]);
+    const totals = priceCart(items, variants, settings);
+    if (totals.lines.length !== items.length || totals.exceedsStock) return { ok: false, reason: "cart-changed" } as const;
+
+    const orderNumber = newOrderNumber();
+    const accessToken = randomBytes(24).toString("base64url");
+    const [order] = await db
+      .insert(orders)
+      .values({
+        orderNumber,
+        accessToken,
+        paymentMethod: method,
+        email: details.email,
+        phone: details.phone,
+        shippingAddress: details.shippingAddress,
+        billing: details.billing,
+        acceptedDocuments: acceptedDocumentVersions(),
+        subtotalKurus: totals.subtotalKurus,
+        shippingFeeKurus: totals.shippingFeeKurus,
+        totalKurus: totals.totalKurus,
+      })
+      .returning({ id: orders.id });
+    await db.insert(orderLines).values(
+      totals.lines.map((line, position) => ({
+        orderId: order.id,
+        variantId: line.id,
+        productName: line.productName,
+        variantName: line.name,
+        unitPriceKurus: line.priceKurus,
+        vatRatePercent: line.vatRatePercent,
+        quantity: line.quantity,
+        lineTotalKurus: line.lineTotalKurus,
+        position,
+      })),
+    );
+    return { ok: true, orderId: order.id, orderNumber, accessToken, totals, details } as const;
+  }
+
   return {
     /**
      * Creates an Ödeme Bekliyor Order priced from current Variants and shipping
@@ -143,53 +205,10 @@ export function createOrders(db: Database, options: OrdersOptions) {
       input: CheckoutInput,
       placement: { callbackUrl: string; customerIp?: string | null },
     ): Promise<PlaceOrderResult> {
-      if (!input.acceptedContracts) return { ok: false, reason: "contracts-not-accepted" };
-      const validation = validateCheckoutDetails(input);
-      if (!validation.ok) return { ok: false, reason: "invalid-details", fields: validation.fields };
-      const { email, phone, shippingAddress, billing } = validation.details;
-
-      // Merged per Variant so one Variant can't dodge the Stok check across two lines.
-      const items = input.items
-        .filter((item) => Number.isInteger(item.variantId) && Number.isInteger(item.quantity))
-        .reduce((merged: CartItem[], item) => addToCart(merged, item.variantId, item.quantity), []);
-      if (items.length === 0) return { ok: false, reason: "empty-cart" };
-
-      const [variants, settings] = await Promise.all([
-        catalog.getVariantsByIds(items.map((item) => item.variantId)),
-        shipping.getSettings(),
-      ]);
-      const totals = priceCart(items, variants, settings);
-      if (totals.lines.length !== items.length || totals.exceedsStock) return { ok: false, reason: "cart-changed" };
-
-      const orderNumber = newOrderNumber();
-      const [order] = await db
-        .insert(orders)
-        .values({
-          orderNumber,
-          accessToken: randomBytes(24).toString("base64url"),
-          email,
-          phone,
-          shippingAddress,
-          billing,
-          acceptedDocuments: acceptedDocumentVersions(),
-          subtotalKurus: totals.subtotalKurus,
-          shippingFeeKurus: totals.shippingFeeKurus,
-          totalKurus: totals.totalKurus,
-        })
-        .returning({ id: orders.id });
-      await db.insert(orderLines).values(
-        totals.lines.map((line, position) => ({
-          orderId: order.id,
-          variantId: line.id,
-          productName: line.productName,
-          variantName: line.name,
-          unitPriceKurus: line.priceKurus,
-          vatRatePercent: line.vatRatePercent,
-          quantity: line.quantity,
-          lineTotalKurus: line.lineTotalKurus,
-          position,
-        })),
-      );
+      const created = await createOrder(input, "card");
+      if (!created.ok) return created;
+      const { orderId, orderNumber, totals } = created;
+      const { email, phone, shippingAddress, billing } = created.details;
 
       const session = await payments.startPayment({
         orderNumber,
@@ -212,8 +231,20 @@ export function createOrders(db: Database, options: OrdersOptions) {
           quantity: line.quantity,
         })),
       });
-      await db.update(orders).set({ paymentToken: session.token }).where(eq(orders.id, order.id));
+      await db.update(orders).set({ paymentToken: session.token }).where(eq(orders.id, orderId));
       return { ok: true, orderNumber, paymentUrl: session.redirectUrl };
+    },
+
+    /**
+     * Creates a Havale Siparişi: an Ödeme Bekliyor Order that waits for the
+     * Admin to confirm the transfer. Stok is not touched until then.
+     */
+    async placeBankTransferOrder(input: CheckoutInput): Promise<PlaceBankTransferOrderResult> {
+      const created = await createOrder(input, "bank_transfer");
+      if (!created.ok) return created;
+      const order = (await loadOrder(eq(orders.id, created.orderId))) as Order;
+      await emails.bankTransferOrderReceived(order);
+      return { ok: true, orderNumber: created.orderNumber, accessToken: created.accessToken };
     },
 
     /**
@@ -284,6 +315,47 @@ export function createOrders(db: Database, options: OrdersOptions) {
       const order = (await loadOrder(eq(orders.id, settlement.orderId))) as Order;
       // Only the confirmation that made the Order Ödendi sends the Sipariş onayı, so a retry never sends it twice.
       if (settlement.justPaid) await emails.orderConfirmed(order);
+      return { ok: true, order };
+    },
+
+    /**
+     * The Admin has seen the transfer arrive: Stok drops atomically and the
+     * Havale Siparişi becomes Ödendi in one transaction. When a Variant has
+     * run short the Order stays Ödeme Bekliyor with Stok untouched, and the
+     * result names the Variant so the Admin can act. Anything but an Ödeme
+     * Bekliyor bank transfer Order is rejected with `OrderStatusError`.
+     */
+    async confirmBankTransfer(orderNumber: string): Promise<ConfirmBankTransferResult> {
+      const outcome = await db.transaction(async (tx): Promise<{ variantName: string } | null> => {
+        const [order] = await tx.select().from(orders).where(eq(orders.orderNumber, orderNumber)).for("update");
+        if (!order) throw new Error("Order not found");
+        if (order.paymentMethod !== "bank_transfer") throw new OrderStatusError(order.status, "paid");
+        assertTransition(order.status, "paid");
+
+        const lines = await tx
+          .select({
+            variantId: orderLines.variantId,
+            quantity: orderLines.quantity,
+            productName: orderLines.productName,
+            variantName: orderLines.variantName,
+          })
+          .from(orderLines)
+          .where(eq(orderLines.orderId, order.id));
+        try {
+          // A savepoint, so a shortfall on a later line also undoes the Stok taken for the earlier ones.
+          await tx.transaction((savepoint) => decrementStock(savepoint, lines));
+        } catch (error) {
+          if (!(error instanceof InsufficientStockError)) throw error;
+          const short = lines.find((line) => line.variantId === error.variantId);
+          return { variantName: short ? `${short.productName} ${short.variantName}` : "Bilinmeyen ürün" };
+        }
+        await moveStatus(tx, order, "paid", { paidAt: new Date() });
+        return null;
+      });
+
+      if (outcome) return { ok: false, reason: "insufficient-stock", variantName: outcome.variantName };
+      const order = (await loadOrder(eq(orders.orderNumber, orderNumber))) as Order;
+      await emails.orderConfirmed(order);
       return { ok: true, order };
     },
 

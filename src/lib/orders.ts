@@ -1,4 +1,4 @@
-import { siteConfig } from "@/config/site";
+import { bankAccount, siteConfig } from "@/config/site";
 import { getDb } from "@/db";
 import { createOrderEmails, createOrders } from "@/modules/orders";
 import { emailSender } from "./email";
@@ -8,5 +8,5 @@ import { paymentProvider } from "./payments";
 export const getOrders = () =>
   createOrders(getDb(), {
     payments: paymentProvider(),
-    emails: createOrderEmails({ sender: emailSender(), brandName: siteConfig.brandName }),
+    emails: createOrderEmails({ sender: emailSender(), brandName: siteConfig.brandName, bankAccount }),
   });

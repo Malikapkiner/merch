@@ -5,11 +5,11 @@ import { AdminStatus } from "@/components/admin-status";
 import { requireAdmin } from "@/lib/admin-session";
 import { formatPrice } from "@/lib/format-price";
 import { getOrders } from "@/lib/orders";
-import { ORDER_STATUS_LABELS } from "@/lib/order-status";
+import { ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/order-status";
 import { getDocument } from "@/modules/legal";
 import { nextStatuses } from "@/modules/orders";
 import type { OrderStatus } from "@/modules/orders";
-import { changeOrderStatusAction } from "../../../actions";
+import { changeOrderStatusAction, confirmBankTransferAction } from "../../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +47,8 @@ export default async function AdminOrderPage({ params, searchParams }: Props) {
       <h1 className="heading-section">Sipariş {order.orderNumber}</h1>
       <AdminStatus error={error} saved={saved} />
       <p>
-        <strong>{ORDER_STATUS_LABELS[order.status]}</strong> · {dateFormatter.format(order.createdAt)}
+        <strong>{ORDER_STATUS_LABELS[order.status]}</strong> · {PAYMENT_METHOD_LABELS[order.paymentMethod]} ·{" "}
+        {dateFormatter.format(order.createdAt)}
         {order.trackingNumber && <> · Takip no: {order.trackingNumber}</>}
       </p>
       {order.adminNote && <p>Not: {order.adminNote}</p>}
@@ -122,6 +123,14 @@ export default async function AdminOrderPage({ params, searchParams }: Props) {
       {steps.length > 0 && (
         <section className="admin-card">
           <h2>Durumu değiştir</h2>
+          {order.status === "awaiting_payment" && order.paymentMethod === "bank_transfer" && (
+            <form action={confirmBankTransferAction} className="admin-form--inline">
+              <input type="hidden" name="orderNumber" value={order.orderNumber} />
+              <button className="button" type="submit">
+                Havaleyi onayla (Ödendi yap)
+              </button>
+            </form>
+          )}
           {steps.includes("preparing") && (
             <form action={changeOrderStatusAction} className="admin-form--inline">
               <input type="hidden" name="orderNumber" value={order.orderNumber} />

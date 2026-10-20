@@ -1,5 +1,5 @@
 import { integer, jsonb, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
-import type { Address, BillingInfo, CancellationReason, OrderStatus } from "./types";
+import type { Address, BillingInfo, CancellationReason, OrderStatus, PaymentMethod } from "./types";
 
 export const orderStatus = pgEnum("order_status", [
   "awaiting_payment",
@@ -10,6 +10,8 @@ export const orderStatus = pgEnum("order_status", [
   "cancelled",
   "returned",
 ] as const satisfies readonly OrderStatus[]);
+
+export const paymentMethod = pgEnum("payment_method", ["card", "bank_transfer"] as const satisfies readonly PaymentMethod[]);
 
 /**
  * An Order with a snapshot of everything the Customer agreed to: addresses,
@@ -23,6 +25,7 @@ export const orders = pgTable("orders", {
   /** Unguessable token in the confirmation page link. */
   accessToken: text("access_token").notNull().unique(),
   status: orderStatus("status").notNull().default("awaiting_payment"),
+  paymentMethod: paymentMethod("payment_method").notNull().default("card"),
   email: text("email").notNull(),
   /** E.164, e.g. +905321234567. */
   phone: text("phone").notNull(),

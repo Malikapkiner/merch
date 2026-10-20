@@ -1,10 +1,12 @@
 import type { EmailMessage, EmailSender } from "../notifications";
-import type { Address, Order } from "./types";
+import type { Address, BankAccount, Order } from "./types";
 
 export type OrderEmailsOptions = {
   sender: EmailSender;
   /** The store's brand name from the app configuration; signs every e-mail. */
   brandName: string;
+  /** Where Havale Siparişleri are paid to. */
+  bankAccount: BankAccount;
 };
 
 const priceFormatter = new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" });
@@ -55,7 +57,7 @@ function message(to: string, subject: string, paragraphs: Paragraph[], idempoten
  * already settled, so a failed send is logged and the Order goes on.
  */
 export function createOrderEmails(options: OrderEmailsOptions) {
-  const { sender, brandName } = options;
+  const { sender, brandName, bankAccount } = options;
 
   async function deliver(order: Order, email: EmailMessage): Promise<void> {
     try {
@@ -89,6 +91,40 @@ export function createOrderEmails(options: OrderEmailsOptions) {
             brandName,
           ],
           `order-confirmed/${order.orderNumber}`,
+        ),
+      );
+    },
+
+    /** Sipariş alındı for a Havale Siparişi, with the account to pay into; the Order number goes in the transfer description. */
+    async bankTransferOrderReceived(order: Order): Promise<void> {
+      await deliver(
+        order,
+        message(
+          order.email,
+          `${brandName}: ${order.orderNumber} numaralı siparişiniz alındı, ödemeniz bekleniyor`,
+          [
+            `Merhaba ${order.shippingAddress.fullName},`,
+            "Siparişiniz alındı. Havale/EFT ödemenizi aşağıdaki hesaba yaptığınızda siparişinizi onaylayıp hazırlamaya başlayacağız.",
+            `Sipariş numarası: ${order.orderNumber}`,
+            [
+              `Ödenecek tutar: ${price(order.totalKurus)}`,
+              `Banka: ${bankAccount.bankName}`,
+              `Hesap sahibi: ${bankAccount.accountHolder}`,
+              `IBAN: ${bankAccount.iban}`,
+              `Açıklama: ${order.orderNumber} (lütfen açıklama kısmına sipariş numaranızı yazın)`,
+            ],
+            order.lines.map(
+              (line) => `${line.productName} ${line.variantName}: ${line.quantity} × ${price(line.unitPriceKurus)} = ${price(line.lineTotalKurus)}`,
+            ),
+            [
+              `Ara toplam: ${price(order.subtotalKurus)}`,
+              `Kargo: ${order.shippingFeeKurus === 0 ? "Ücretsiz" : price(order.shippingFeeKurus)}`,
+              `Toplam (KDV dahil): ${price(order.totalKurus)}`,
+            ],
+            ["Teslimat adresi:", ...addressLines(order.shippingAddress), order.phone],
+            brandName,
+          ],
+          `bank-transfer-received/${order.orderNumber}`,
         ),
       );
     },

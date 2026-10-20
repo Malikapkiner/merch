@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { openTestDatabase } from "../../../tests/database";
 import { createCatalog } from "../catalog";
@@ -16,13 +17,14 @@ let payments: FakePaymentProvider;
 let mail: FakeEmailSender;
 let orders: ReturnType<typeof createOrders>;
 
+const BANK_ACCOUNT = { bankName: "Örnek Bank", accountHolder: "Zeytin Evi Gıda Ltd. Şti.", iban: "TR33 0006 1005 1978 6457 8413 26" };
 const CALLBACK_URL = "https://magaza.test/odeme/sonuc";
 
 beforeEach(async () => {
   await testDb.truncateAll();
   payments = createFakePaymentProvider();
   mail = createFakeEmailSender();
-  orders = createOrders(testDb.db, { payments, emails: createOrderEmails({ sender: mail, brandName: "Zeytin Evi" }) });
+  orders = createOrders(testDb.db, { payments, emails: createOrderEmails({ sender: mail, brandName: "Zeytin Evi", bankAccount: BANK_ACCOUNT }) });
 });
 afterAll(() => testDb.close());
 
@@ -613,7 +615,7 @@ describe("Order e-mails", () => {
     const { orderNumber, token } = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
     payments.approve(token);
     await orders.confirmPayment(token);
-    const emails = createOrderEmails({ sender: mail, brandName: "Zeytin Evi" });
+    const emails = createOrderEmails({ sender: mail, brandName: "Zeytin Evi", bankAccount: BANK_ACCOUNT });
 
     await emails.orderShipped((await orders.getOrder(orderNumber))!, "YK1234567890");
 
@@ -635,7 +637,7 @@ describe("Order e-mails", () => {
     await orders.confirmPayment(token);
     mail.refuseSending();
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const emails = createOrderEmails({ sender: mail, brandName: "Zeytin Evi" });
+    const emails = createOrderEmails({ sender: mail, brandName: "Zeytin Evi", bankAccount: BANK_ACCOUNT });
 
     await expect(emails.orderShipped((await orders.getOrder(orderNumber))!, "YK1234567890")).resolves.toBeUndefined();
 
@@ -655,5 +657,168 @@ describe("Order e-mails", () => {
     expect(email.html).toContain("Ayşe &lt;b&gt;Yılmaz&lt;/b&gt;");
     expect(email.html).not.toContain("<b>Yılmaz</b>");
     expect(email.text).toContain("Ayşe <b>Yılmaz</b>");
+  });
+});
+
+describe("Bank transfer Orders", () => {
+  it("places an Ödeme Bekliyor Order without touching Stok or starting a card payment", async () => {
+    await shipping.setSettings({ shippingFeeKurus: 6000, freeShippingThresholdKurus: 100000 });
+    const oil = await variantWith({ priceKurus: 34950, stock: 5, name: "500 ml" });
+
+    const result = await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 2 }] }));
+
+    if (!result.ok) throw new Error(`placement failed: ${result.reason}`);
+    const order = await orders.getOrder(result.orderNumber);
+    expect(order).toMatchObject({
+      status: "awaiting_payment",
+      paymentMethod: "bank_transfer",
+      totalKurus: 75900,
+      paidAt: null,
+    });
+    expect(result.accessToken).toBe(order?.accessToken);
+    expect(await stockOf(oil.id)).toBe(5);
+    expect(payments.session(result.orderNumber)).toBeUndefined();
+  });
+
+  it("refuses the same carts and details as a card Order", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 1 });
+
+    expect(await orders.placeBankTransferOrder(checkout({ items: [] }))).toEqual({ ok: false, reason: "empty-cart" });
+    expect(await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 2 }] }))).toEqual({
+      ok: false,
+      reason: "cart-changed",
+    });
+    expect(
+      await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }], acceptedContracts: false })),
+    ).toEqual({ ok: false, reason: "contracts-not-accepted" });
+    expect(await orders.listOrders()).toEqual([]);
+  });
+
+  it("marks the Order Ödendi and takes the sold units off Stok when the Admin confirms the transfer", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const paste = await variantWith({ priceKurus: 12900, stock: 3 });
+    const placed = await orders.placeBankTransferOrder(
+      checkout({ items: [{ variantId: oil.id, quantity: 2 }, { variantId: paste.id, quantity: 1 }] }),
+    );
+    if (!placed.ok) throw new Error("placement failed");
+
+    const result = await orders.confirmBankTransfer(placed.orderNumber);
+
+    expect(result).toMatchObject({ ok: true, order: { orderNumber: placed.orderNumber, status: "paid" } });
+    expect((await orders.getOrder(placed.orderNumber))?.paidAt).toBeInstanceOf(Date);
+    expect(await stockOf(oil.id)).toBe(3);
+    expect(await stockOf(paste.id)).toBe(2);
+  });
+
+  it("warns the Admin and leaves the Order Ödeme Bekliyor, with no Stok taken, when a Variant ran short", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const paste = await variantWith({ priceKurus: 12900, stock: 3, name: "Cam kavanoz" });
+    const first = await orders.placeBankTransferOrder(
+      checkout({ items: [{ variantId: oil.id, quantity: 2 }, { variantId: paste.id, quantity: 3 }] }),
+    );
+    const second = await orders.placeBankTransferOrder(checkout({ items: [{ variantId: paste.id, quantity: 1 }] }));
+    if (!first.ok || !second.ok) throw new Error("placement failed");
+    expect(await orders.confirmBankTransfer(first.orderNumber)).toMatchObject({ ok: true });
+
+    const result = await orders.confirmBankTransfer(second.orderNumber);
+
+    expect(result).toEqual({ ok: false, reason: "insufficient-stock", variantName: "Erken Hasat Zeytinyağı Cam kavanoz" });
+    expect((await orders.getOrder(second.orderNumber))?.status).toBe("awaiting_payment");
+    expect(await stockOf(paste.id)).toBe(0);
+  });
+
+  it("takes no Stok from any line when a later line ran short", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const paste = await variantWith({ priceKurus: 12900, stock: 3 });
+    const placed = await orders.placeBankTransferOrder(
+      checkout({ items: [{ variantId: oil.id, quantity: 2 }, { variantId: paste.id, quantity: 3 }] }),
+    );
+    if (!placed.ok) throw new Error("placement failed");
+    await testDb.db.execute(sql`update variants set stock = 1 where id = ${paste.id}`);
+
+    const result = await orders.confirmBankTransfer(placed.orderNumber);
+
+    expect(result).toMatchObject({ ok: false, reason: "insufficient-stock" });
+    expect(await stockOf(oil.id)).toBe(5);
+    expect(await stockOf(paste.id)).toBe(1);
+  });
+
+  it("lets the Admin confirm the transfer once Stok is back", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 2 });
+    const placed = await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 2 }] }));
+    if (!placed.ok) throw new Error("placement failed");
+    await testDb.db.execute(sql`update variants set stock = 0 where id = ${oil.id}`);
+    expect(await orders.confirmBankTransfer(placed.orderNumber)).toMatchObject({ ok: false });
+    await testDb.db.execute(sql`update variants set stock = 4 where id = ${oil.id}`);
+
+    expect(await orders.confirmBankTransfer(placed.orderNumber)).toMatchObject({ ok: true });
+    expect(await stockOf(oil.id)).toBe(2);
+  });
+
+  it("confirms a transfer once, without taking Stok twice", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const placed = await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 2 }] }));
+    if (!placed.ok) throw new Error("placement failed");
+    await orders.confirmBankTransfer(placed.orderNumber);
+
+    await expect(orders.confirmBankTransfer(placed.orderNumber)).rejects.toBeInstanceOf(OrderStatusError);
+    expect(await stockOf(oil.id)).toBe(3);
+  });
+
+  it("only confirms Ödeme Bekliyor bank transfer Orders", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const card = await placeOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    const cancelled = await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    if (!cancelled.ok) throw new Error("placement failed");
+    await orders.changeStatus(cancelled.orderNumber, "cancelled");
+
+    await expect(orders.confirmBankTransfer(card.orderNumber)).rejects.toBeInstanceOf(OrderStatusError);
+    await expect(orders.confirmBankTransfer(cancelled.orderNumber)).rejects.toBeInstanceOf(OrderStatusError);
+    await expect(orders.confirmBankTransfer("NOSUCHNO")).rejects.toThrow("Order not found");
+    expect(await stockOf(oil.id)).toBe(5);
+  });
+
+  it("tells the Customer the Order was received, with the bank details, amount and Order number to pay by", async () => {
+    await shipping.setSettings({ shippingFeeKurus: 6000, freeShippingThresholdKurus: 100000 });
+    const oil = await variantWith({ priceKurus: 34950, stock: 5, name: "500 ml" });
+
+    const placed = await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 2 }] }));
+
+    if (!placed.ok) throw new Error("placement failed");
+    expect(mail.sent()).toHaveLength(1);
+    const [email] = mail.sent();
+    expect(email.to).toBe("ayse@example.com");
+    expect(email.subject).toBe(`Zeytin Evi: ${placed.orderNumber} numaralı siparişiniz alındı, ödemeniz bekleniyor`);
+    for (const body of [email.text, email.html]) {
+      expect(body).toContain(placed.orderNumber);
+      expect(body).toContain("Erken Hasat Zeytinyağı 500 ml");
+      expect(body).toContain("₺759,00");
+      expect(body).toContain("Örnek Bank");
+      expect(body).toContain("Zeytin Evi Gıda Ltd. Şti.");
+      expect(body).toContain("TR33 0006 1005 1978 6457 8413 26");
+      expect(body).toContain("Urla / İzmir");
+    }
+  });
+
+  it("sends no e-mail for a bank transfer Order that was refused", async () => {
+    await orders.placeBankTransferOrder(checkout({ items: [] }));
+
+    expect(mail.sent()).toEqual([]);
+  });
+
+  it("sends the payment confirmation once the Admin confirms the transfer, and not again on a failed confirmation", async () => {
+    const oil = await variantWith({ priceKurus: 34950, stock: 5 });
+    const placed = await orders.placeBankTransferOrder(checkout({ items: [{ variantId: oil.id, quantity: 1 }] }));
+    if (!placed.ok) throw new Error("placement failed");
+    await testDb.db.execute(sql`update variants set stock = 0 where id = ${oil.id}`);
+    await orders.confirmBankTransfer(placed.orderNumber);
+    expect(mail.sent()).toHaveLength(1);
+    await testDb.db.execute(sql`update variants set stock = 5 where id = ${oil.id}`);
+
+    await orders.confirmBankTransfer(placed.orderNumber);
+    await expect(orders.confirmBankTransfer(placed.orderNumber)).rejects.toBeInstanceOf(OrderStatusError);
+
+    expect(mail.sent()).toHaveLength(2);
+    expect(mail.sent()[1].text).toContain("Ödemeniz alındı");
   });
 });

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { startTransition, useActionState, useState, type FormEvent, type InputHTMLAttributes } from "react";
+import { bankAccount } from "@/config/site";
 import { formatPrice } from "@/lib/format-price";
 import { usePricedCart } from "@/lib/use-priced-cart";
-import type { CheckoutField } from "@/modules/orders";
+import type { CheckoutField, PaymentMethod } from "@/modules/orders";
 import { placeOrderAction } from "./actions";
 
 type DistrictsByProvince = Record<string, string[]>;
@@ -117,6 +118,7 @@ export function CheckoutForm({ districtsByProvince }: { districtsByProvince: Dis
   const cart = usePricedCart();
   const [state, formAction, pending] = useActionState(placeOrderAction, undefined);
   const [billingSame, setBillingSame] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const fields = state?.fields ?? [];
 
   if (cart.state === "empty") {
@@ -241,6 +243,45 @@ export function CheckoutForm({ districtsByProvince }: { districtsByProvince: Dis
           </div>
         </dl>
 
+        <fieldset className="admin-form">
+          <legend>Ödeme yöntemi</legend>
+          <label className="checkbox-field">
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="card"
+              checked={paymentMethod === "card"}
+              onChange={() => setPaymentMethod("card")}
+            />
+            Kredi / banka kartı
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="bank_transfer"
+              checked={paymentMethod === "bank_transfer"}
+              onChange={() => setPaymentMethod("bank_transfer")}
+            />
+            Havale / EFT
+          </label>
+          {paymentMethod === "bank_transfer" && (
+            <div>
+              <p>
+                Siparişi tamamladığınızda sipariş numaranız oluşur; havale açıklamasına yazmanız yeterli. Ödemeniz
+                hesabımıza ulaşıp onaylandığında siparişiniz hazırlanmaya başlar.
+              </p>
+              <p>
+                {bankAccount.bankName}
+                <br />
+                Hesap sahibi: {bankAccount.accountHolder}
+                <br />
+                IBAN: {bankAccount.iban}
+              </p>
+            </div>
+          )}
+        </fieldset>
+
         <label className="checkbox-field">
           <input type="checkbox" name="acceptedContracts" required />
           <span>
@@ -262,7 +303,7 @@ export function CheckoutForm({ districtsByProvince }: { districtsByProvince: Dis
         )}
 
         <button className="button" type="submit" disabled={pending}>
-          {pending ? "Yönlendiriliyor…" : "Ödemeye geç"}
+          {pending ? "Yönlendiriliyor…" : paymentMethod === "bank_transfer" ? "Siparişi tamamla" : "Ödemeye geç"}
         </button>
       </aside>
     </form>

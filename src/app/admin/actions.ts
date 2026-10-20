@@ -260,6 +260,25 @@ export async function deleteProductImageAction(formData: FormData): Promise<void
   redirect(`${back}?durum=kaydedildi`);
 }
 
+export async function confirmBankTransferAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const orderNumber = textField(formData, "orderNumber");
+  const back = `/admin/siparisler/${encodeURIComponent(orderNumber)}`;
+
+  if (!(await getOrders().getOrder(orderNumber))) fail(back, "Sipariş bulunamadı.");
+
+  try {
+    const result = await getOrders().confirmBankTransfer(orderNumber);
+    if (!result.ok) {
+      fail(back, `Stok yetersiz: ${result.variantName}. Sipariş Ödendi yapılmadı; stoğu güncelleyip yeniden deneyin veya siparişi iptal edin.`);
+    }
+  } catch (error) {
+    if (error instanceof OrderStatusError) fail(back, "Bu sipariş havale onayı bekleyen bir sipariş değil.");
+    throw error;
+  }
+  redirect(`${back}?durum=kaydedildi`);
+}
+
 export async function changeOrderStatusAction(formData: FormData): Promise<void> {
   await requireAdmin();
   const orderNumber = textField(formData, "orderNumber");

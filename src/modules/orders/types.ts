@@ -13,6 +13,12 @@ export type OrderStatus =
   | "cancelled"
   | "returned";
 
+/** How the Customer pays: by card through the provider, or by havale/EFT confirmed by the Admin. */
+export type PaymentMethod = "card" | "bank_transfer";
+
+/** Where a Havale Siparişi is paid to; shown at checkout and in the Customer's e-mail. */
+export type BankAccount = { bankName: string; accountHolder: string; iban: string };
+
 /** Why an Order became İptal before it was paid. */
 export type CancellationReason = "payment-failed" | "out-of-stock";
 
@@ -70,6 +76,10 @@ export type PlaceOrderResult =
   /** A Variant is gone or has less Stok than the cart asks for; the cart page shows which. */
   | { ok: false; reason: "cart-changed" };
 
+export type PlaceBankTransferOrderResult =
+  | { ok: true; orderNumber: string; accessToken: string }
+  | Exclude<PlaceOrderResult, { ok: true }>;
+
 export type OrderLine = {
   variantId: number;
   productName: string;
@@ -94,6 +104,7 @@ export type Order = {
   orderNumber: string;
   accessToken: string;
   status: OrderStatus;
+  paymentMethod: PaymentMethod;
   email: string;
   phone: string;
   shippingAddress: Address;
@@ -119,3 +130,8 @@ export type ConfirmPaymentResult =
   | { ok: false; reason: "payment-pending" }
   /** Paid, but a Variant sold out first; the payment is cancelled and the Order is İptal. */
   | { ok: false; reason: "out-of-stock" };
+
+export type ConfirmBankTransferResult =
+  | { ok: true; order: Order }
+  /** A Variant has less Stok than the Order needs; the Order stays Ödeme Bekliyor and Stok is untouched. */
+  | { ok: false; reason: "insufficient-stock"; variantName: string };
