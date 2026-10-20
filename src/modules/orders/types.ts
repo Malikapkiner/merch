@@ -44,6 +44,8 @@ export type BillingInfo = {
 
 export type CheckoutInput = {
   items: CartItem[];
+  /** The signed-in Member placing the Order; omitted for a Misafir. */
+  memberId?: number;
   email: string;
   phone: string;
   shippingAddress: Address;
@@ -103,6 +105,8 @@ export type OrderSummary = {
 export type Order = {
   orderNumber: string;
   accessToken: string;
+  /** The Member who placed the Order; null for a Misafir. */
+  memberId: number | null;
   status: OrderStatus;
   paymentMethod: PaymentMethod;
   email: string;

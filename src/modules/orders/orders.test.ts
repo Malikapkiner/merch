@@ -822,3 +822,45 @@ describe("Bank transfer Orders", () => {
     expect(mail.sent()[1].text).toContain("Ödemeniz alındı");
   });
 });
+
+describe("Member Order history", () => {
+  async function placeFor(memberId: number | undefined, method: "card" | "bank_transfer" = "bank_transfer") {
+    const oil = await variantWith({ priceKurus: 34950, stock: 50 });
+    const input = checkout({ items: [{ variantId: oil.id, quantity: 1 }], memberId });
+    if (method === "card") {
+      const placed = await orders.placeOrder(input, { callbackUrl: CALLBACK_URL });
+      if (!placed.ok) throw new Error("placement failed");
+      return placed.orderNumber;
+    }
+    const placed = await orders.placeBankTransferOrder(input);
+    if (!placed.ok) throw new Error("placement failed");
+    return placed.orderNumber;
+  }
+
+  it("lists a Member's Orders newest first, with Sipariş Durumu, and nobody else's", async () => {
+    const first = await placeFor(7);
+    const second = await placeFor(7);
+    await placeFor(8);
+    await placeFor(undefined);
+
+    const history = await orders.listOrdersForMember(7);
+
+    expect(history.map((order) => order.orderNumber)).toEqual([second, first]);
+    expect(history[0]).toMatchObject({ memberId: 7, status: "awaiting_payment", lines: [{ quantity: 1 }] });
+  });
+
+  it("leaves out card payment attempts that were never completed", async () => {
+    const bankTransfer = await placeFor(7);
+    await placeFor(7, "card");
+
+    const history = await orders.listOrdersForMember(7);
+
+    expect(history.map((order) => order.orderNumber)).toEqual([bankTransfer]);
+  });
+
+  it("shows no history to a Misafir Order", async () => {
+    await placeFor(undefined);
+
+    expect(await orders.listOrdersForMember(7)).toEqual([]);
+  });
+});

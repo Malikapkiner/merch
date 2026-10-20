@@ -25,3 +25,9 @@ export function isKnownProvince(province: string): boolean {
 export function isKnownDistrict(province: string, district: string): boolean {
   return byProvince.get(province)?.includes(district) ?? false;
 }
+
+/** "0532 123 45 67", "+90 532…" or "532…" -> "+905321234567"; null when not a Turkish number. */
+export function normalizePhone(input: string): string | null {
+  const digits = input.replace(/[\s()-]/g, "").replace(/^\+?90(?=\d{10}$)/, "").replace(/^0/, "");
+  return /^[2-5]\d{9}$/.test(digits) ? `+90${digits}` : null;
+}

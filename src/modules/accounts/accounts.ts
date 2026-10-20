@@ -1,7 +1,8 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { and, asc, eq, gt, lt } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { hashPassword, verifyPassword } from "./password";
+import { EMAIL_PATTERN, hashToken, MIN_PASSWORD_LENGTH, normalizeEmail } from "./shared";
 import { adminSessions, admins, loginAttempts } from "./schema";
 
 /** An authenticated Admin. Never carries credentials. */
@@ -15,16 +16,8 @@ export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 5;
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
 /**
- * Accounts module: Admin authentication. Members (ticket 13) will join the same module.
+ * Accounts module: Admin authentication. Members live in members.ts.
  * The public interface exposes credentials in, sessions out; hashing and storage stay inside.
  */
 export function createAccounts(db: Database, options: { now?: () => Date } = {}) {
@@ -38,8 +31,8 @@ export function createAccounts(db: Database, options: { now?: () => Date } = {})
   return {
     async createAdmin(input: { email: string; password: string }): Promise<Admin> {
       const email = normalizeEmail(input.email);
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("invalid email");
-      if (input.password.length < 8) throw new Error("password must be at least 8 characters");
+      if (!EMAIL_PATTERN.test(email)) throw new Error("invalid email");
+      if (input.password.length < MIN_PASSWORD_LENGTH) throw new Error("password must be at least 8 characters");
 
       const [row] = await db
         .insert(admins)

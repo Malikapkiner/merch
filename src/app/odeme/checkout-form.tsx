@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { startTransition, useActionState, useState, type FormEvent, type InputHTMLAttributes } from "react";
+import type { MemberAddress } from "@/modules/accounts";
 import { bankAccount } from "@/config/site";
 import { formatPrice } from "@/lib/format-price";
 import { usePricedCart } from "@/lib/use-priced-cart";
@@ -9,6 +10,9 @@ import type { CheckoutField, PaymentMethod } from "@/modules/orders";
 import { placeOrderAction } from "./actions";
 
 type DistrictsByProvince = Record<string, string[]>;
+
+/** A signed-in Member: their e-posta and saved addresses prefill the form. */
+type CheckoutMember = { email: string; addresses: MemberAddress[] };
 
 const FIELD_ERRORS: Record<CheckoutField, string> = {
   email: "Geçerli bir e-posta adresi girin.",
@@ -40,12 +44,14 @@ function ProvinceDistrictFields({
   prefix,
   districtsByProvince,
   fields,
+  initial,
 }: {
   prefix: "" | "billing";
   districtsByProvince: DistrictsByProvince;
   fields: CheckoutField[];
+  initial?: { province: string; district: string };
 }) {
-  const [province, setProvince] = useState("");
+  const [province, setProvince] = useState(initial?.province ?? "");
   const provinceName = (prefix ? "billingProvince" : "province") as CheckoutField;
   const districtName = (prefix ? "billingDistrict" : "district") as CheckoutField;
 
@@ -79,7 +85,7 @@ function ProvinceDistrictFields({
           name={districtName}
           required
           disabled={!province}
-          defaultValue=""
+          defaultValue={province === initial?.province ? initial.district : ""}
           aria-invalid={fields.includes(districtName) || undefined}
         >
           <option value="">Seçin</option>
@@ -114,11 +120,20 @@ function TextField({
   );
 }
 
-export function CheckoutForm({ districtsByProvince }: { districtsByProvince: DistrictsByProvince }) {
+export function CheckoutForm({
+  districtsByProvince,
+  member,
+}: {
+  districtsByProvince: DistrictsByProvince;
+  member: CheckoutMember | null;
+}) {
   const cart = usePricedCart();
   const [state, formAction, pending] = useActionState(placeOrderAction, undefined);
   const [billingSame, setBillingSame] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
+  // The Member's saved address in use; the first one is ready when they arrive.
+  const [addressId, setAddressId] = useState<number | null>(member?.addresses[0]?.id ?? null);
+  const saved = member?.addresses.find((address) => address.id === addressId);
   const fields = state?.fields ?? [];
 
   if (cart.state === "empty") {
@@ -162,10 +177,20 @@ export function CheckoutForm({ districtsByProvince }: { districtsByProvince: Dis
       <div className="checkout__details">
         <section className="admin-form">
           <h2>İletişim</h2>
-          <TextField name="email" label="E-posta" type="email" autoComplete="email" required fields={fields} />
           <TextField
+            name="email"
+            label="E-posta"
+            type="email"
+            autoComplete="email"
+            required
+            defaultValue={member?.email}
+            fields={fields}
+          />
+          <TextField
+            key={`phone-${addressId}`}
             name="phone"
             label="Telefon"
+            defaultValue={saved?.phone}
             type="tel"
             autoComplete="tel"
             placeholder="0532 123 45 67"
@@ -176,16 +201,49 @@ export function CheckoutForm({ districtsByProvince }: { districtsByProvince: Dis
 
         <section className="admin-form">
           <h2>Teslimat adresi</h2>
-          <TextField name="fullName" label="Ad soyad" autoComplete="name" required fields={fields} />
-          <ProvinceDistrictFields prefix="" districtsByProvince={districtsByProvince} fields={fields} />
-          <TextField name="neighbourhood" label="Mahalle" required fields={fields} />
-          <TextField
-            name="addressLine"
-            label="Açık adres (cadde, sokak, bina ve daire no)"
-            autoComplete="street-address"
-            required
-            fields={fields}
-          />
+          {member && member.addresses.length > 0 && (
+            <div className="field">
+              <label htmlFor="savedAddress">Kayıtlı adreslerim</label>
+              <select
+                id="savedAddress"
+                value={addressId ?? ""}
+                onChange={(event) => setAddressId(event.target.value ? Number(event.target.value) : null)}
+              >
+                {member.addresses.map((address) => (
+                  <option key={address.id} value={address.id}>
+                    {address.fullName} · {address.neighbourhood}, {address.district}/{address.province}
+                  </option>
+                ))}
+                <option value="">Yeni adres gir</option>
+              </select>
+            </div>
+          )}
+          {/* Re-mounted per chosen address so its values replace what was shown before. */}
+          <div key={`address-${addressId}`} className="admin-form">
+            <TextField
+              name="fullName"
+              label="Ad soyad"
+              autoComplete="name"
+              required
+              defaultValue={saved?.fullName}
+              fields={fields}
+            />
+            <ProvinceDistrictFields
+              prefix=""
+              districtsByProvince={districtsByProvince}
+              fields={fields}
+              initial={saved}
+            />
+            <TextField name="neighbourhood" label="Mahalle" required defaultValue={saved?.neighbourhood} fields={fields} />
+            <TextField
+              name="addressLine"
+              label="Açık adres (cadde, sokak, bina ve daire no)"
+              autoComplete="street-address"
+              required
+              defaultValue={saved?.addressLine}
+              fields={fields}
+            />
+          </div>
         </section>
 
         <section className="admin-form">

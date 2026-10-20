@@ -1,4 +1,4 @@
-import { isKnownDistrict, isKnownProvince } from "../address";
+import { isKnownDistrict, isKnownProvince, normalizePhone } from "../address";
 import type { Address, BillingInfo, CheckoutField, CheckoutInput } from "./types";
 
 export type CheckoutDetails = {
@@ -12,12 +12,6 @@ export type CheckoutDetails = {
 const MAX_TEXT_LENGTH = 300;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** "0532 123 45 67", "+90 532…" or "532…" -> "+905321234567"; null when not a Turkish number. */
-function normalizePhone(input: string): string | null {
-  const digits = input.replace(/[\s()-]/g, "").replace(/^\+?90(?=\d{10}$)/, "").replace(/^0/, "");
-  return /^[2-5]\d{9}$/.test(digits) ? `+90${digits}` : null;
-}
 
 function isFilled(value: string): boolean {
   return value.length > 0 && value.length <= MAX_TEXT_LENGTH;

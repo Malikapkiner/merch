@@ -26,6 +26,8 @@ export const orders = pgTable("orders", {
   accessToken: text("access_token").notNull().unique(),
   status: orderStatus("status").notNull().default("awaiting_payment"),
   paymentMethod: paymentMethod("payment_method").notNull().default("card"),
+  /** The Member who placed the Order; null for a Misafir. Not a foreign key: Orders outlive accounts. */
+  memberId: integer("member_id"),
   email: text("email").notNull(),
   /** E.164, e.g. +905321234567. */
   phone: text("phone").notNull(),

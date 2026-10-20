@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, or } from "drizzle-orm";
 import { randomBytes, randomInt } from "node:crypto";
 import type { Database, Transaction } from "@/db/client";
 import { addToCart, priceCart } from "../cart";
@@ -118,6 +118,7 @@ export function createOrders(db: Database, options: OrdersOptions) {
     return {
       orderNumber: row.orderNumber,
       accessToken: row.accessToken,
+      memberId: row.memberId,
       status: row.status,
       paymentMethod: row.paymentMethod,
       email: row.email,
@@ -169,6 +170,7 @@ export function createOrders(db: Database, options: OrdersOptions) {
         orderNumber,
         accessToken,
         paymentMethod: method,
+        memberId: input.memberId ?? null,
         email: details.email,
         phone: details.phone,
         shippingAddress: details.shippingAddress,
@@ -410,6 +412,26 @@ export function createOrders(db: Database, options: OrdersOptions) {
 
     async getOrder(orderNumber: string): Promise<Order | null> {
       return loadOrder(eq(orders.orderNumber, orderNumber));
+    },
+
+    /**
+     * A Member's Orders, newest first. Card payment attempts that never completed
+     * (still Ödeme Bekliyor, or İptal because the payment failed) are left out.
+     */
+    async listOrdersForMember(memberId: number): Promise<Order[]> {
+      const rows = await db
+        .select({ orderNumber: orders.orderNumber })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.memberId, memberId),
+            or(eq(orders.paymentMethod, "bank_transfer"), ne(orders.status, "awaiting_payment")),
+            or(isNull(orders.cancellationReason), ne(orders.cancellationReason, PAYMENT_FAILED)),
+          ),
+        )
+        .orderBy(desc(orders.createdAt), desc(orders.id));
+      const history = await Promise.all(rows.map((row) => loadOrder(eq(orders.orderNumber, row.orderNumber))));
+      return history.filter((order): order is Order => order !== null);
     },
 
     /** The Order behind a confirmation page link, or null for an unknown token. */

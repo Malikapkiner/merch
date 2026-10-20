@@ -14,7 +14,10 @@ export const bankAccount = {
   iban: "TR00 0000 0000 0000 0000 0000 00",
 } as const;
 
-export const navLinks = [{ href: "/urunler", label: "Ürünler" }] as const;
+export const navLinks = [
+  { href: "/urunler", label: "Ürünler" },
+  { href: "/hesap", label: "Hesabım" },
+] as const;
 
 /** Legal pages; slugs match the Legal module documents. */
 export const legalLinks = [

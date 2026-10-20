@@ -2,6 +2,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { getMember } from "@/lib/member-session";
 import { getOrders } from "@/lib/orders";
 import type { CartItem } from "@/modules/cart";
 import type { CheckoutField, CheckoutInput, PlaceBankTransferOrderResult, PlaceOrderResult } from "@/modules/orders";
@@ -57,8 +58,11 @@ export async function placeOrderAction(_state: CheckoutState, formData: FormData
         addressLine: textField(formData, "billingAddressLine"),
       };
 
+  // The Member comes from the session cookie, never from the form.
+  const member = await getMember();
   const checkout: CheckoutInput = {
       items: cartItems(formData),
+      memberId: member?.id,
       email: textField(formData, "email"),
       phone: textField(formData, "phone"),
       shippingAddress,
