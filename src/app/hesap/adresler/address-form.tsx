@@ -1,19 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import type { MemberAddress } from "@/modules/accounts";
 import { saveAddressAction } from "../actions";
 
 type Props = {
   districtsByProvince: Record<string, string[]>;
-  address?: {
-    id: number;
-    fullName: string;
-    phone: string;
-    province: string;
-    district: string;
-    neighbourhood: string;
-    addressLine: string;
-  };
+  address?: MemberAddress;
 };
 
 /** Add or edit form; the ilçe list follows the chosen il. */

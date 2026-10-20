@@ -21,7 +21,7 @@ export default async function ResetPasswordPage({ params, searchParams }: Props)
       <h1 className="heading-section">Yeni şifre belirle</h1>
       <AdminStatus error={hata} />
       <form action={resetPasswordAction} className="admin-form">
-        <input type="hidden" name="token" value={decodeURIComponent(token)} />
+        <input type="hidden" name="token" value={token} />
         <div className="field">
           <label htmlFor="password">Yeni şifre (en az 8 karakter)</label>
           <input id="password" name="password" type="password" required minLength={8} autoComplete="new-password" />
