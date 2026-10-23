@@ -49,24 +49,29 @@ export async function loginAction(formData: FormData): Promise<void> {
   redirect(next);
 }
 
-export async function registerAction(formData: FormData): Promise<void> {
+export type RegisterField = "email" | "password" | "passwordConfirm";
+export type RegisterState = { email: string; errors: Partial<Record<RegisterField, string>> } | undefined;
+
+export async function registerAction(_previous: RegisterState, formData: FormData): Promise<RegisterState> {
   const next = destination(formData);
   const email = textField(formData, "email");
   const password = String(formData.get("password") ?? "");
-  const back = "/hesap/kayit";
-  if (password !== String(formData.get("passwordConfirm") ?? "")) fail(back, "Şifreler eşleşmiyor.");
+
+  if (password !== String(formData.get("passwordConfirm") ?? "")) {
+    return { email, errors: { passwordConfirm: "Şifreler eşleşmiyor. İki alana da aynı şifreyi yazın." } };
+  }
 
   const members = getMembers();
   const registered = await members.register({ email, password });
   if (!registered.ok) {
-    fail(
-      back,
-      {
-        "invalid-email": "Geçerli bir e-posta adresi girin.",
-        "weak-password": "Şifre en az 8 karakter olmalıdır.",
-        "email-taken": "Bu e-posta adresiyle zaten bir hesap var. Giriş yapabilir veya şifrenizi sıfırlayabilirsiniz.",
-      }[registered.reason],
-    );
+    const errors: Record<typeof registered.reason, Partial<Record<RegisterField, string>>> = {
+      "invalid-email": { email: "Geçerli bir e-posta adresi girin (örn. ad@ornek.com)." },
+      "weak-password": { password: "Şifre en az 8 karakter olmalıdır." },
+      "email-taken": {
+        email: "Bu e-posta adresiyle zaten bir hesap var. Giriş yapabilir veya şifrenizi sıfırlayabilirsiniz.",
+      },
+    };
+    return { email, errors: errors[registered.reason] };
   }
   const login = await members.login({ email, password });
   if (!login.ok) redirect("/hesap/giris");
