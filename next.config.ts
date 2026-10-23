@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
   // The E2E build goes to its own directory so it does not trigger a running `next dev` that watches .next.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   output: "standalone",
+  experimental: {
+    agentUpgrade: "security",
+  },
   images: {
     remotePatterns: r2ImagePatterns(),
   },
