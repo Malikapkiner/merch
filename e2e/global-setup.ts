@@ -2,7 +2,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { openTestDatabase } from "../tests/database";
 import { createCatalog } from "../src/modules/catalog";
 
-/** A clean test database with one purchasable Product. */
+/** A clean test database with one purchasable Product and one sold-out Product. */
 export default async function setup() {
   const { db, close, truncateAll } = openTestDatabase();
   await migrate(db, { migrationsFolder: "./drizzle" });
@@ -17,5 +17,12 @@ export default async function setup() {
     categoryId: category.id,
   });
   await catalog.addVariant(product.id, { name: "500 ml cam şişe", priceKurus: 34950, vatRatePercent: 10, stock: 5 });
+  const soldOut = await catalog.createProduct({
+    slug: "tukenen-zeytin",
+    name: "Tükenen Zeytin",
+    description: "Stoğu biten ürün.",
+    categoryId: category.id,
+  });
+  await catalog.addVariant(soldOut.id, { name: "1 kg kavanoz", priceKurus: 18000, vatRatePercent: 10, stock: 0 });
   await close();
 }

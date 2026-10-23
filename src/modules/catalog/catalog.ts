@@ -1,7 +1,8 @@
-import { and, asc, eq, gte, inArray, min, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, min, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Database, Transaction } from "@/db/client";
 import type { MediaStorage } from "../media";
+import { pickDefaultVariant, type DefaultVariant } from "./default-variant";
 import { categories, productImages, products, variants } from "./schema";
 
 export type Category = { id: number; slug: string; name: string };
@@ -33,6 +34,8 @@ export type Product = {
   category: Category | null;
   /** Lowest Variant price in kuruş (KDV included); null when the Product has no Variants. */
   fromPriceKurus: number | null;
+  /** Varsayılan Varyant: cheapest Variant in stock; null when sold out or without Variants. */
+  defaultVariant: DefaultVariant | null;
   /** Cover image shown on the listing; the first image in the reorder. */
   coverImage: ProductImage | null;
 };
@@ -46,7 +49,7 @@ export type Variant = {
   soldOut: boolean;
 };
 
-export type ProductDetail = Omit<Product, "fromPriceKurus" | "coverImage"> & {
+export type ProductDetail = Omit<Product, "fromPriceKurus" | "defaultVariant" | "coverImage"> & {
   /** All images of the Product in display order; the first one is the cover. */
   images: ProductImage[];
   variants: Variant[];
@@ -358,7 +361,9 @@ export function createCatalog(db: Database, options: CatalogOptions = {}) {
         .orderBy(asc(variants.id));
     },
     /** Published Products only, optionally limited to one category. */
-    async listProducts(filter: { categorySlug?: string } = {}): Promise<Product[]> {
+    async listProducts(
+      filter: { categorySlug?: string; newestFirst?: boolean; limit?: number } = {},
+    ): Promise<Product[]> {
       const rows = await db
         .select({
           id: products.id,
@@ -378,7 +383,21 @@ export function createCatalog(db: Database, options: CatalogOptions = {}) {
           ),
         )
         .groupBy(products.id, categories.id)
-        .orderBy(asc(products.id));
+        .orderBy(...(filter.newestFirst ? [desc(products.createdAt), desc(products.id)] : [asc(products.id)]))
+        .limit(filter.limit ?? 1000);
+      const variantRows = rows.length
+        ? await db
+            .select({
+              id: variants.id,
+              productId: variants.productId,
+              name: variants.name,
+              priceKurus: variants.priceKurus,
+              stock: variants.stock,
+              position: variants.position,
+            })
+            .from(variants)
+            .where(inArray(variants.productId, rows.map((row) => row.id)))
+        : [];
       /** One extra ordered query; the first row per Product is the cover. */
       const imageRows = rows.length
         ? await db
@@ -399,6 +418,7 @@ export function createCatalog(db: Database, options: CatalogOptions = {}) {
       return rows.map((row) => ({
         ...row,
         category: toCategory(row.category),
+        defaultVariant: pickDefaultVariant(variantRows.filter((v) => v.productId === row.id)),
         coverImage: toImages(coverByProduct.has(row.id) ? [coverByProduct.get(row.id) as ImageRow] : [])[0] ?? null,
       }));
     },

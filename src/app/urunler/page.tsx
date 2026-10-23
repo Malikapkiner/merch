@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
+import { ProductCard } from "@/components/product-card";
 import { getCatalog } from "@/lib/catalog";
-import { formatPrice, VAT_INCLUDED_LABEL } from "@/lib/format-price";
 
 export const dynamic = "force-dynamic";
 
@@ -39,21 +38,7 @@ export default async function ProductListPage({ searchParams }: Props) {
         <ul className="product-grid">
           {products.map((p) => (
             <li key={p.id}>
-              <Link href={`/urunler/${p.slug}`} className="product-card">
-                {p.coverImage ? (
-                  <div className="product-photo">
-                    <Image src={p.coverImage.url} alt={p.name} fill sizes="(max-width: 48rem) 50vw, 33vw" />
-                  </div>
-                ) : (
-                  <div className="photo-placeholder" role="img" aria-label={p.name} />
-                )}
-                <h2>{p.name}</h2>
-                {p.fromPriceKurus !== null && (
-                  <p className="price">
-                    {formatPrice(p.fromPriceKurus)}&apos;den başlayan <span className="vat-note">{VAT_INCLUDED_LABEL}</span>
-                  </p>
-                )}
-              </Link>
+              <ProductCard product={p} />
             </li>
           ))}
         </ul>

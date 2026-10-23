@@ -1,6 +1,6 @@
-/** Single source of truth for the brand name ("Merch" is a working name). */
+/** Single source of truth for the brand name ("Sarolive" is a working name). */
 export const siteConfig = {
-  brandName: "Merch",
+  brandName: "Sarolive",
   description: "Doğal zeytinyağı, zeytin ve salça. Üreticiden doğrudan sofranıza.",
 } as const;
 
@@ -13,11 +13,6 @@ export const bankAccount = {
   accountHolder: "Merch Gıda Ticaret Ltd. Şti.",
   iban: "TR00 0000 0000 0000 0000 0000 00",
 } as const;
-
-export const navLinks = [
-  { href: "/urunler", label: "Ürünler" },
-  { href: "/hesap", label: "Hesabım" },
-] as const;
 
 /** Legal pages; slugs match the Legal module documents. */
 export const legalLinks = [

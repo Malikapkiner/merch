@@ -6,6 +6,7 @@ export {
   InsufficientStockError,
   ProductImageError,
 } from "./catalog";
+export type { DefaultVariant } from "./default-variant";
 export type {
   AdminProduct,
   AdminVariant,

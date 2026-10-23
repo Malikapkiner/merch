@@ -5,6 +5,9 @@ import { SiteHeader } from "@/components/site-header";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
 
+/** Header and footer read Categories and shipping settings from the database. */
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: { default: `${siteConfig.brandName} | Doğal ürünler`, template: `%s | ${siteConfig.brandName}` },
   description: siteConfig.description,

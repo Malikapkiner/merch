@@ -1,4 +1,4 @@
-# Merch
+# Sarolive
 
 Tek markanın doğal ürünlerini (zeytinyağı, salça vb.) Türkiye'deki tüketicilere doğrudan satan e-ticaret mağazası. Arayüz ve bu sözlük Türkçe, kod İngilizcedir; her terimin kod karşılığı parantez içinde verilmiştir.
 
@@ -37,6 +37,10 @@ _Avoid_: Tür, koleksiyon
 **Varyant** (`Variant`):
 Bir Ürünün satın alınabilir tek biçimi (ör. 500 ml cam şişe, 5 L teneke). Fiyat ve stok Varyant'ta tutulur.
 _Avoid_: Seçenek, SKU, boyut
+
+**Varsayılan Varyant** (`DefaultVariant`):
+Ürün kartında fiyatı gösterilen ve karttaki "Sepete Ekle" ile sepete giren Varyant: Stoku olan Varyantlar arasında en ucuzu, fiyatlar eşitse sıralamada öndeki. Admin seçmez, fiyat ve Stoktan hesaplanır. Tüm Varyantların Stoku bittiyse Varsayılan Varyant yoktur ve kart "Tükendi" gösterir.
+_Avoid_: Ana varyant, seçili varyant
 
 **Ürün Görseli** (`ProductImage`):
 Ürüne Admin tarafından yüklenen fotoğraf; bulut nesne depolamada (Media portu) durur, mağazada optimize gösterilir. İlk görsel listeleme kapak görselidir.
